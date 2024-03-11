@@ -1,7 +1,7 @@
 import sys
 
 from .directories import search_directories, purge_directories
-from .registry import check_uninstallers, search_registry, purge_registry
+from .registry import check_uninstallers, search_registry_keys, purge_registry_keys
 
 
 def main(args = sys.argv[1:]) -> int:
@@ -12,11 +12,11 @@ def main(args = sys.argv[1:]) -> int:
         return 0
 
 
-    if '--purge-paths' in args:
-        args.remove('--purge-paths')
-        # purge_directories(args)
-    else:
-        search_directories(args)
+    # if '--purge-paths' in args:
+    #     args.remove('--purge-paths')
+    #     # purge_directories(args)
+    # else:
+    #     search_directories(args)
 
     if '--purge-registry' in args:
         args.remove('--purge-registry')
