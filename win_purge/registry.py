@@ -2,7 +2,7 @@ import sys
 from typing import Iterable, Iterator, Callable, Union, Any
 import winreg
 
-
+import toml_tools
 
 UNINSTALLERS_REGISTRY_KEY = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
 
@@ -50,7 +50,7 @@ def get_names_vals_and_types(key: winreg.HKEYType) -> Iterator[tuple[str, Any, i
 
 
 def _matching_uninstallers(strs: Iterable[str]) -> Iterator[tuple[winreg.HKEYType, str, str, str, str, Any]]:
-    for uninstaller_key, key_name in _walk_deepest_first_dfs(UNINSTALLERS_REGISTRY_KEY, max_depth=2):
+    for uninstaller_key, key_name in _walk_deepest_first_dfs(UNINSTALLERS_REGISTRY_KEY):
 
 
         for search_str in strs:
