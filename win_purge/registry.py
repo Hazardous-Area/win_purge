@@ -29,9 +29,12 @@ def _walk_deepest_first_dfs(
     if max_depth == 0:
         return
 
-
-    with winreg.OpenKey(root_key, key_name, 0, access) as this_key:
-
+    try:
+        this_key = winreg.OpenKey(root_key, key_name, 0, access)
+    except OSError:
+        pass
+        #print(f'Error opening: {ROOT_KEYS[root_key]}\\{key_name}')
+    else:
         num_sub_keys, num_vals, last_updated = winreg.QueryInfoKey(this_key)
         
 
@@ -54,8 +57,7 @@ def _walk_deepest_first_dfs(
         
         yield root_key, this_key, key_name
 
-        # The context manager is not closed until the next next(), 
-        # so it is recommended to consume the whole iterator.
+        this_key.Close()
 
 
 def _walk_all_roots_deepest_first_dfs(
@@ -75,13 +77,17 @@ def _walk_all_roots_deepest_first_dfs(
         except OSError:
             continue
 
-        yield from _walk_deepest_first_dfs(
+        print(f'\nKeys under {ROOT_KEYS[root_key]}:')
+
+        try:
+            yield from _walk_deepest_first_dfs(
                                     key_name=key_name,
                                     root_key=root_key,
                                     access=access,
                                     max_depth=max_depth,
                                     )
-
+        except FileNotFoundError:
+            print()
 
 
 def get_names_vals_and_types(key: winreg.HKEYType) -> Iterator[tuple[str, Any, int]]:
@@ -109,7 +115,9 @@ def _search_keys_and_names(
     strs: Container[str], 
     keys_and_names: Iterator[tuple[winreg.HKEYType, winreg.HKEYType, str]],
     ) -> Iterator[SearchResult]:
-    
+
+
+
     for root, key, name in keys_and_names:
         vals = {val_name: val 
                 for val_name, val, __ in get_names_vals_and_types(key)
@@ -142,7 +150,9 @@ def _matching_uninstallers(strs: Container[str]) -> Iterator[SearchResult]:
                                             ),
                                       )     
 
-
+def system_path_registry_entries():
+    yield r'HKEY_CURRENT_USER\Environment'
+    yield r'HKEY_USERS\S-1-5-21-3648489184-4041388956-2286264135-1001\Environment'
 
 
 def check_uninstallers(strs: Container[str]):
@@ -190,7 +200,7 @@ def _purge_registry_keys(args: Iterable[str]) -> None:
         _pprint_result(prefix='Matching registry key: ', result=result)
 
         root, key, name, key_name, val_name, val = result
-        
+
         confirmation = input(f'Delete registry key: {key_name}? (y/n/quit) ')
 
         if confirmation.lower().startswith('q'):
