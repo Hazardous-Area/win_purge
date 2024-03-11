@@ -5,6 +5,7 @@ from typing import Iterable, Iterator
 
 from send2trash import send2trash
 
+from .registry import check_uninstallers
 
 def candidate_installion_directories(names: Iterable[str], publisher = '') -> Iterator[pathlib.Path]:
 
@@ -34,13 +35,13 @@ def existing_installion_directories(strs: Iterable[str]) -> Iterator[pathlib.Pat
             yield path
 
 
-def check_directories(args: Iterable[str]) -> None:
+def search_directories(args: Iterable[str]) -> None:
     print('Checking directories.  Run with "--purge-paths" to move the following paths to the Recycle Bin:')
     for path in existing_installion_directories(args):
         print(str(path))
 
 
-def purge_directories(args: Iterable[str]) -> None:
+def _purge_directories(args: Iterable[str]) -> None:
     print('WARNING!! Moving the following directories to the Recycle Bin: \n')
     paths = list(existing_installion_directories(args))
     for path in paths:
@@ -52,3 +53,6 @@ def purge_directories(args: Iterable[str]) -> None:
         if confirmation.lower() == 'y':
             send2trash(path)
 
+def purge_directories(args: Iterable[str]) -> None:
+    check_uninstallers(args)
+    _purge_directories(args)

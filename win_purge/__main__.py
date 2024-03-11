@@ -1,7 +1,7 @@
 import sys
 
-from .directories import check_directories, purge_directories
-from .registry import check_uninstallers, check_registry, purge_registry
+from .directories import search_directories, purge_directories
+from .registry import check_uninstallers, search_registry, purge_registry
 
 
 def main(args = sys.argv[1:]) -> int:
@@ -9,23 +9,20 @@ def main(args = sys.argv[1:]) -> int:
     if not args:
         print('Example usage, searching for ["Microsoft"]')
         check_uninstallers(["Microsoft"])
+        return 0
+
+
+    if '--purge-paths' in args:
+        args.remove('--purge-paths')
+        # purge_directories(args)
     else:
-        if not '--skip-uninstallers-check' in args:
-            check_uninstallers(args)
-        else:
-            args.remove('--skip-uninstallers-check')
+        search_directories(args)
 
-        if '--purge-paths' in args:
-            args.remove('--purge-paths')
-            purge_directories(args)
-        else:
-            check_directories(args)
-
-        if '--purge-registry' in args:
-            args.remove('--purge-registry')
-            purge_registry(args)
-        else:
-            check_registry(args)
+    if '--purge-registry' in args:
+        args.remove('--purge-registry')
+        # purge_registry_keys(args)
+    else:
+        search_registry_keys(args)
 
     return 0
 

@@ -1,8 +1,16 @@
 import sys
-from typing import Iterable, Iterator, Callable, Union, Any
+from typing import Iterable, Iterator, Callable, Union, Any, Container
 import winreg
 
-import toml_tools
+
+ROOT_KEYS = (winreg.HKEY_CLASSES_ROOT,
+             winreg.HKEY_CURRENT_CONFIG,
+             winreg.HKEY_CURRENT_USER,
+             winreg.HKEY_DYN_DATA,
+             winreg.HKEY_LOCAL_MACHINE,
+             winreg.HKEY_PERFORMANCE_DATA,
+             winreg.HKEY_USERS,
+            )
 
 UNINSTALLERS_REGISTRY_KEY = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
 
@@ -11,9 +19,9 @@ UNINSTALLERS_REGISTRY_KEY = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstal
 
 def _walk_deepest_first_dfs(
     key_name: str,
-    root_key: Union[winreg.HKEYType, int] = winreg.HKEY_LOCAL_MACHINE,
+    root_key: Union[winreg.HKEYType, int],
     access: int = winreg.KEY_READ,
-    max_depth: int = 2,
+    max_depth: int = 5,
     )-> Iterator[tuple[winreg.HKEYType, str]]:
 
     if max_depth == 0:
@@ -42,6 +50,23 @@ def _walk_deepest_first_dfs(
         # so it is recommended to consume the whole iterator.
 
 
+def _walk_all_roots_deepest_first_dfs(
+    key_name: str,
+    root_keys: Iterable[Union[winreg.HKEYType, int]] = ROOT_KEYS,
+    access: int = winreg.KEY_READ,
+    max_depth: int = 5,
+    )-> Iterator[tuple[winreg.HKEYType, str]]:
+
+    for root_key in root_keys:
+        yield from _walk_deepest_first_dfs(
+                                    key_name=key_name,
+                                    root_key=root_key,
+                                    access=access,
+                                    max_depth=max_depth.
+                                    )
+
+
+
 def get_names_vals_and_types(key: winreg.HKEYType) -> Iterator[tuple[str, Any, int]]:
 
     __, num_vals, __ = winreg.QueryInfoKey(key)
@@ -49,52 +74,101 @@ def get_names_vals_and_types(key: winreg.HKEYType) -> Iterator[tuple[str, Any, i
         yield winreg.EnumValue(key, i)
 
 
-def _matching_uninstallers(strs: Iterable[str]) -> Iterator[tuple[winreg.HKEYType, str, str, str, str, Any]]:
-    for uninstaller_key, key_name in _walk_deepest_first_dfs(UNINSTALLERS_REGISTRY_KEY):
+SearchResult = tuple[winreg.HKEYType, str, str, str, str, Any]
 
 
-        for search_str in strs:
+def _search_keys_and_names(
+    strs: Container[str], 
+    root_keys: Iterable[str],
+    keys_and_names: Iterator[tuple[winreg.HKEYType, str]],
+    ) -> Iterator[SearchResult]:
+    for key, name in keys_and_names:
+        vals = {val_name: val 
+                for val_name, val, __ in get_names_vals_and_types(key)
+               }
             
-            vals = {val_name: val 
-                    for val_name, val, __ in get_names_vals_and_types(uninstaller_key)
-                   }
-            
-            name = vals.get('DisplayName',
-                            next((val 
-                                  for val_name, val in vals.items()
-                                  if 'name' in val_name.lower()
-                                 ),
-                                 ''
-                                 )
-                           )
+        display_name = vals.get('DisplayName',
+                                next((val 
+                                      for val_name, val in vals.items()
+                                      if 'name' in val_name.lower()
+                                     ),
+                                     ''
+                                    )
+                                )
 
-            if search_str in key_name.rpartition('\\')[1]:
-                yield uninstaller_key, name, key_name, search_str, '', ''
-                break
 
+        if any(search_str in name.rpartition('\\')[2] for search_str in strs):
+            yield key, display_name, name, search_str, '', ''
+        else:
             for val_name, val in vals.items():
-                if search_str in str(val):
-                    yield uninstaller_key, name, key_name, search_str, val_name, val
+                if any(search_str in str(val) for search_str in strs):
+                    yield key, display_name, name, search_str, val_name, val
                     break
 
-def check_uninstallers(strs: Iterable[str]):
+
+def _matching_uninstallers(strs: Container[str]) -> Iterator[SearchResult]:
+    yield from _search_keys_and_names(strs,
+                                      _walk_deepest_first_dfs(key_name=UNINSTALLERS_REGISTRY_KEY,
+                                                              root_key=winreg.HKEY_LOCAL_MACHINE,
+                                                             ),
+                                      )     
+
+
+def _pprint_result(result: SearchResult, prefix: str = ''):
+
+    key, name, key_name, str_, val_name, val = result
+
+    print(f'{prefix}{name} for: {str_=}', end='')
     
-    matches = []
+    if val_name:
+        print(f', {val_name=}, {val=}', end='')
 
-    for uninstaller, name, key_name, str_, val_name, val in _matching_uninstallers(strs):
-        matches.append(uninstaller)
+    print(f' at: {key_name}')
 
-        print(f'Matching uninstaller: {name} for: {str_=}', end='')
-        
-        if val_name:
-            print(f', {val_name=}, {val=}', end='')
 
-        print(f' at: {key_name}')
+def check_uninstallers(strs: Container[str]):
+    
+    found = []
 
-    if matches:
+    for result in _matching_uninstallers(strs):
+        found.append(result)
+        _pprint_result(prefix='Matching uninstaller: ', result)
+
+
+    if found:
         raise Exception('Matching uninstaller(s) found. Run these uninstallers first before purging. ')
 
 
+def search_registry_keys(args: Iterable[str]) -> None:
+    print('Searching for matching Registry keys.  Run with "--purge-registry" to delete the following registry keys:')
+    for root_key in ROOT_KEYS:
+        for result in _walk_all_roots_deepest_first_dfs(_walk_deepest_first_dfs('')):
+            _pprint_result(prefix='Matching registry key: ', result)
+                            
+
+
+
+def _purge_registry_keys(args: Iterable[str]) -> None:
+    print('WARNING!! Deleting the following Registry keys: ')
+    for root_key in ROOT_KEYS:
+        for result in _walk_all_roots_deepest_first_dfs(_walk_deepest_first_dfs('')):
+            _pprint_result(prefix='Matching registry key: ', result)
+
+            key, name, key_name, str_, val_name, val = result
+            confirmation = input(f'Delete registry key: {key_name}? (y/n/quit) ')
+
+            if confirmation.lower().startswith('q'):
+                break
+
+            if confirmation.lower() == 'y':
+
+                # Context manager opened in _walk_deepest_first_dfs
+                winreg.DeleteKey(key, '')
+
+
+def purge_registry_keys(args: Iterable[str]) -> None:
+    check_uninstallers(args)
+    _purge_registry_keys(args)
 
 # https://stackoverflow.com/a/63290451/20785734
 # def delete_sub_key(root, sub):
@@ -114,15 +188,3 @@ def check_uninstallers(strs: Iterable[str]):
 #     except Exception:
 #         # log opening/closure failure
 
-
-if __name__ == '__main__':
-    # for key in _walk_deepest_first_dfs('SOFTWARE'):
-    #     print(key)
-
-    args = sys.argv[1:]
-
-    if not args:
-        print('Example usage, searching for ["Microsoft"]')
-        args = ['Microsoft']
-
-    check_uninstallers(args)
