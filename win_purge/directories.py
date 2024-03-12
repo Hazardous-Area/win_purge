@@ -4,7 +4,7 @@ import shutil
 import tempfile
 from typing import Iterable, Iterator
 
-from send2trash import send2trash
+import send2trash
 
 from .registry import check_uninstallers
 
@@ -55,7 +55,7 @@ def _purge_directories(args: Iterable[str]) -> None:
             break
 
         if confirmation.lower() == 'y':
-            send2trash(path)
+            send2trash.send2trash(path)
 
 def purge_directories(args: Iterable[str]) -> None:
     check_uninstallers(args)
