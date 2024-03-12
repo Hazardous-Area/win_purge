@@ -1,25 +1,49 @@
 import sys
 from typing import Iterable, Iterator, Callable, Union, Any, Container
 import winreg
+import pathlib
 import subprocess
+import tempfile
 
-ROOT_KEYS = {winreg.HKEY_CLASSES_ROOT: 'HKCR',
-             winreg.HKEY_CURRENT_CONFIG: 'HKCC',
-             winreg.HKEY_CURRENT_USER: 'HKCU',
-             winreg.HKEY_DYN_DATA: 'HKDD',
-             winreg.HKEY_LOCAL_MACHINE: 'HKLM',
-             winreg.HKEY_PERFORMANCE_DATA: 'HKPD',
-             winreg.HKEY_USERS: 'HKU',
-            }
+from .directories import APPDATA
+
+from .reglib import ROOT_KEYS
 
 ('HKLM','HKCU','HKCR','HKU','HKCC')
 
 UNINSTALLERS_REGISTRY_KEY = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
 
+APP_FOLDER_NAME = pathlib.Path(__file__).parent.stem
+
+BACKUPS_DIR = APPDATA / APP_FOLDER_NAME
+
+TMP_DIR = pathlib.Path(tempfile.gettempdir()) / APP_FOLDER_NAME
 
 
+def get_unused_path(
+    dir_: pathlib.Path,
+    prefix: str = 'purged_',
+    ext: str = '.reg',
+    ) -> pathlib.Path:
 
-def _walk_deepest_first_dfs(
+    # Can create dir_ as a side effect
+    
+    dir_.mkdir(exist_ok=True, parents=True)
+
+    i = 0
+    
+    while True:
+        path = dir_ / f'{prefix}{i}{ext}'
+        if path.exists():
+            i += 1
+            continue
+        return path
+
+# Creates BACKUPS_DIR if needed 
+BACKUP_FILE = get_unused_path(BACKUPS_DIR)
+
+
+def _walk_dfs_bottom_up(
     key_name: str,
     root_key: Union[winreg.HKEYType, int],
     access: int = winreg.KEY_READ,
@@ -29,6 +53,12 @@ def _walk_deepest_first_dfs(
     if max_depth == 0:
         return
 
+    # Catch OSErrors, e.g. for obsolete
+    # winreg.HKEY_DYN_DATA & winreg.HKEY_PERFORMANCE_DATA
+    # and weird inaccessible children.    
+    # With the context manager pattern, error messages are less
+    # able to show the name of the key causing the error, as 
+    # effectively all the code goes under the try:.
     try:
         this_key = winreg.OpenKey(root_key, key_name, 0, access)
     except OSError:
@@ -48,7 +78,7 @@ def _walk_deepest_first_dfs(
 
 
         for child in children:
-            yield from _walk_deepest_first_dfs(
+            yield from _walk_dfs_bottom_up(
                             key_name = f'{key_name}\\{child}' if key_name else child,
                             root_key = root_key, 
                             access = access, 
@@ -60,7 +90,7 @@ def _walk_deepest_first_dfs(
         this_key.Close()
 
 
-def _walk_all_roots_deepest_first_dfs(
+def _walk_all_roots_dfs_bottom_up(
     key_name: str,
     root_keys: Iterable[Union[winreg.HKEYType, int]] = ROOT_KEYS,
     access: int = winreg.KEY_READ,
@@ -69,25 +99,24 @@ def _walk_all_roots_deepest_first_dfs(
 
     for root_key in root_keys:
 
-        # Catch OSErrors, e.g. for obsolete
-        # winreg.HKEY_DYN_DATA & winreg.HKEY_PERFORMANCE_DATA
-        try:
-            with winreg.OpenKey(root_key, ''):
-                pass
-        except OSError:
-            continue
+        # try:
+        #     with winreg.OpenKey(root_key, ''):
+        #         pass
+        # except OSError:
+        #     continue
 
-        print(f'\nKeys under {ROOT_KEYS[root_key]}:')
+        print(f'\nKeys under {root_keys[root_key]}:')
 
         try:
-            yield from _walk_deepest_first_dfs(
+            yield from _walk_dfs_bottom_up(
                                     key_name=key_name,
                                     root_key=root_key,
                                     access=access,
                                     max_depth=max_depth,
                                     )
         except FileNotFoundError:
-            print()
+            pass
+        print()
 
 
 def get_names_vals_and_types(root: winreg.HKEYType, key_name: str) -> Iterator[tuple[str, Any, int]]:
@@ -130,7 +159,7 @@ def _pprint_result(result: SearchResult, prefix: str = ''):
 
 def _search_keys_and_names(
     strs: Container[str], 
-    keys_and_names: Iterator[tuple[winreg.HKEYType, str]],
+    roots_and_subkey_names: Iterator[tuple[winreg.HKEYType, str]],
     ) -> Iterator[SearchResult]:
 
 
@@ -159,7 +188,7 @@ def _search_keys_and_names(
 
 def _matching_uninstallers(strs: Container[str]) -> Iterator[SearchResult]:
     yield from _search_keys_and_names(strs,
-                                      _walk_deepest_first_dfs(
+                                      _walk_dfs_bottom_up(
                                             key_name=UNINSTALLERS_REGISTRY_KEY,
                                             root_key=winreg.HKEY_LOCAL_MACHINE,
                                             ),
@@ -190,7 +219,7 @@ def get_path_keys_and_other_keys(strs: Container[str]):
     other_keys = []
     for result in _search_keys_and_names(
                         strs,
-                        _walk_all_roots_deepest_first_dfs(''),
+                        _walk_all_roots_dfs_bottom_up(''),
                         ):
         if get_path_val_names(result[5]):
             path_keys.append(result)
@@ -210,15 +239,23 @@ def search_registry_keys(args: Container[str]) -> None:
 
     for result in other_keys:
         _pprint_result(prefix='Matching registry key: ', result=result)
-                            
 
-def backup_hive(key_name: str):
-    # >>> for name in ('HKLM','HKCU','HKCR','HKU','HKCC'):
 
-    backup_name = key_name.replace('//','_').lower()
+def _backup_key(name_inc_root: str, path: pathlib.Path) -> None:
+    subprocess.run(f'reg export {name_inc_root} {path}')
 
-    subprocess.run(f'reg export {key_name} {backup_name}.reg')
 
+def backup_hive(name: str) -> None:
+    assert name in ('HKLM','HKCU','HKCR','HKU','HKCC', 'HKDD', 'HKPD')
+    _backup_key(name, BACKUPS_DIR / f'{name.lower()}.reg')
+
+
+def tmp_backup_key(name: str) -> pathlib.Path:
+
+    # Creates TMP_DIR if needed
+    tmp_file = get_unused_path(TMP_DIR)
+    _backup_key(name, TMP_FILE)
+    return tmp_file
 
 
 
@@ -226,6 +263,11 @@ def _purge_registry_keys(args: Container[str]) -> None:
     print('WARNING!! Deleting the following Registry keys: ')
 
     backed_up = set()
+
+    tmp_backups = []
+
+    def backup(key_name: str) -> None:
+        tmp_backups.append(tmp_backup_key(key_name))
 
     path_keys, other_keys = get_path_keys_and_other_keys(args)
 
@@ -248,6 +290,9 @@ def _purge_registry_keys(args: Container[str]) -> None:
                 break
 
             if confirmation.lower() == 'y':
+                
+                backup(key_name)
+                
                 if root not in backed_up:
                     backup_hive(ROOT_KEYS[root])
                     backed_up.add(root)
@@ -261,7 +306,7 @@ def _purge_registry_keys(args: Container[str]) -> None:
                         value = ';'.join(path
                                          for path in system_path.split(';')
                                          if path not in paths
-                                         ),
+                                        ),
                                 
                         )
 

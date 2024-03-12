@@ -1,11 +1,15 @@
 import os
 import pathlib
 import shutil
+import tempfile
 from typing import Iterable, Iterator
 
 from send2trash import send2trash
 
 from .registry import check_uninstallers
+
+
+APPDATA = pathlib.Path(os.getenv('APPDATA'))
 
 def candidate_installion_directories(names: Iterable[str], publisher = '') -> Iterator[pathlib.Path]:
 
@@ -23,7 +27,7 @@ def candidate_installion_directories(names: Iterable[str], publisher = '') -> It
         #                    assert pathlib.Path(('c:', 'foo') == 'c:foo'
         yield pathlib.Path(os.getenv('PROGRAMFILES')) / publisher / name
         yield pathlib.Path(os.getenv('PROGRAMFILES(X86)')) / publisher / name
-        yield pathlib.Path(os.getenv('APPDATA')) / publisher / name
+        yield APPDATA / publisher / name
         yield pathlib.Path(os.getenv('LOCALAPPDATA')) / publisher / name
         yield pathlib.Path(os.getenv('LOCALAPPDATA')) / 'Programs' / publisher / name
         yield pathlib.Path(os.getenv('LOCALAPPDATA')).parent / 'LocalLow' / publisher / name
