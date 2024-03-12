@@ -5,42 +5,12 @@ import pathlib
 import subprocess
 import tempfile
 
-from .directories import APPDATA
 
 from .reglib import ROOT_KEYS
 
 ('HKLM','HKCU','HKCR','HKU','HKCC')
 
 UNINSTALLERS_REGISTRY_KEY = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
-
-APP_FOLDER_NAME = pathlib.Path(__file__).parent.stem
-
-BACKUPS_DIR = APPDATA / APP_FOLDER_NAME
-
-TMP_DIR = pathlib.Path(tempfile.gettempdir()) / APP_FOLDER_NAME
-
-
-def get_unused_path(
-    dir_: pathlib.Path,
-    prefix: str = 'purged_',
-    ext: str = '.reg',
-    ) -> pathlib.Path:
-
-    # Can create dir_ as a side effect
-    
-    dir_.mkdir(exist_ok=True, parents=True)
-
-    i = 0
-    
-    while True:
-        path = dir_ / f'{prefix}{i}{ext}'
-        if path.exists():
-            i += 1
-            continue
-        return path
-
-# Creates BACKUPS_DIR if needed 
-BACKUP_FILE = get_unused_path(BACKUPS_DIR)
 
 
 def _walk_dfs_bottom_up(
@@ -254,7 +224,7 @@ def tmp_backup_key(name: str) -> pathlib.Path:
 
     # Creates TMP_DIR if needed
     tmp_file = get_unused_path(TMP_DIR)
-    _backup_key(name, TMP_FILE)
+    _backup_key(name, tmp_file)
     return tmp_file
 
 

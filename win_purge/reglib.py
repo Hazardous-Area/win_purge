@@ -1,7 +1,13 @@
 import winreg
 import enum
+import pathlib
 from typing import Self, Any, Iterator, Iterable, Container, Hashable
-from contextlib import contextmanager
+from contextlib import contextmanager 
+import warnings
+
+import send2trash
+
+APPDATA = pathlib.Path(os.getenv('APPDATA'))
 
 ROOT_KEYS = {winreg.HKEY_CLASSES_ROOT: 'HKCR',
              winreg.HKEY_CURRENT_CONFIG: 'HKCC',
@@ -11,6 +17,7 @@ ROOT_KEYS = {winreg.HKEY_CLASSES_ROOT: 'HKCR',
              winreg.HKEY_PERFORMANCE_DATA: 'HKPD',
              winreg.HKEY_USERS: 'HKU',
             }
+
 
 class Root(enum.Enum):
     HKCR = 'HKEY_CLASSES_ROOT'
@@ -62,12 +69,130 @@ class CaseInsensitiveDict(dict):
         super().__setitem__(k, v)
 
 
+class KeyBackupMaker(abc.ABC):
+    @abc.abstractmethod
+    def tmp_backup_key(name: str):
+        pass
+
+    def consolidate_backups() -> None:
+        pass
+
+
+class CmdKeyBackupMaker(KeyBackupMaker):
+    
+    prefix: str = 'deleted_and_modified_keys_'
+
+    ext: str = '.reg'
+
+    app_folder_name: str = pathlib.Path(__file__).parent.stem
+
+    backups_dir: pathlib.Path = None
+
+    tmp_dir: pathlib.Path = None
+
+    tmp_backups: set[pathlib.Path] = set()
+
+    @classmethod
+    @property
+    def backup_file_pattern(cls):
+        return f'{cls.prefix}%s{cls.ext}'
+
+    @classmethod
+    def get_unused_path(cls, dir_: pathlib.Path) -> pathlib.Path:
+
+        i = 0
+        
+        while True:
+            path = dir_ / (cls.backup_file_pattern % i)
+            if path.exists():
+                i += 1
+                continue
+            return path
+
+
+    @staticmethod
+    def _backup_key(name_inc_root: str, path: pathlib.Path) -> None:
+        subprocess.run(f'reg export {name_inc_root} {path}')
+
+    @classmethod
+    def backup_hive(cls, name: str) -> None:
+        assert name in Root.__members__
+        cls._backup_key(name, BACKUPS_DIR / f'{name.lower()}{cls.ext}')
+
+
+    @classmethod
+    def tmp_backup_key(cls, name: str, dir_: pathlib.Path = None) -> pathlib.Path:
+
+        if dir_ is None:
+            if cls.tmp_dir is None:
+                cls.tmp_dir = pathlib.Path(tempfile.gettempdir()) / cls.app_folder_name
+                cls.tmp_dir.mkdir(exist_ok = True, parents = True)
+            dir_ = cls.tmp_dir
+
+        tmp_file = cls.get_unused_path(dir_)
+
+        cls._backup_key(name, tmp_file)
+
+        cls.tmp_backups.add(tmp_file)
+
+        return tmp_file
+
+
+    @classmethod
+    def consolidate_tmp_backups(
+        cls,
+        dir_: pathlib.Path = None,
+        tmp_backups_dir: pathlib.Path = None,
+        ) -> None:
+
+        if dir_ is None:
+            if cls.backups_dir is None:
+                cls.backups_dir = APPDATA / self.app_folder_name / 'registry_backups'
+                cls.backups_dir.mkdir(exist_ok = True, parents = True)
+            dir_ = cls.backups_dir
+
+
+        tmp_backups_dir = tmp_backups_dir or cls.tmp_dir
+
+        # Check for anything else in the directory that matches our pattern
+        if tmp_backups_dir is not None:
+            tmp_dir_backups = set(tmp_backups_dir.glob(cls.backup_file_pattern % '*'))
+            previous_tmp_backups = tmp_dir_backups - cls.tmp_backups
+            if previous_tmp_backups:
+                warnings.warn(f'Also consolidating {previous_tmp_backups=}')
+                cls.tmp_backups |= previous_tmp_backups
+
+        # Reverse for readability, so that parents consolidated before children.
+        tmp_backups = reversed(sorted(cls.tmp_backups))
+
+        
+        backups_file = cls.get_unused_path(dir_)
+
+        header_written = False
+
+        with backups_file.open('at') as f_w:
+            for tmp_backup in tmp_backups:
+                with tmp_backup.open('rt') as f_r:
+                    for line in f_r:
+                        if header_written and line.startswith('Windows Registry Editor '):
+                            header_written = True
+                            continue
+                        f_w.write(line)
+
+                send2trash.send2trash(tmp_backup)
+
 
 class Key:
 
-    def __init__(self, root: Root, rel_key: str):
+    def __init__(
+        self,
+        root: Root, 
+        rel_key: str,
+        BackupMaker: type = CmdKeyBackupMaker,
+        ):
         self.root = root
         self.rel_key = rel_key
+        self.BackupMaker = BackupMaker
 
 
     @classmethod
@@ -142,27 +267,38 @@ class Key:
             return [winreg.EnumKey(handle, i) for i in range(num_sub_keys)]
 
 
-    def walk(self, access: int = winreg.KEY_READ, max_depth: int = 5) -> Iterator[Self]:
-        """Bottom-up Depth First Search, with each node's children cached. """
-
+    def walk(self,
+             access: int = winreg.KEY_READ,
+             max_depth: int | None  = 5,
+             skip_children: Callable[[Self], bool] = None,
+             ) -> Iterator[Self]:
+        """    Depth First Search, with each node's children cached.
+               By default the nodes are yielded Bottom-Up, from the 
+               depth cap of max_depth upwards, unless a 
+               predicate Callable skip_children is specified, (e.g. 
+               if all sub keys will be deleted anyway) in which 
+               case the nodes are returned Lowest-Up. """
         if max_depth == 0:
             return
 
-        with self.handle(access = access) as handle:
-            num_sub_keys, num_vals, last_updated = winreg.QueryInfoKey(handle)
+        if skip_children is None or not skip_children(self):
+            with self.handle(access = access) as handle:
+                num_sub_keys, num_vals, last_updated = winreg.QueryInfoKey(handle)
 
-            for child_str in self.children():
+                for child_str in self.children():
 
-                child = self.__class__(self.root, f'{self.rel_key}\\{child_str}')
+                    child = self.__class__(self.root, f'{self.rel_key}\\{child_str}')
 
-                # Walking the entire Registry can yield wierd non-existent keys
-                # that only their parents know about.
-                if not child.exists():
-                    continue
+                    # Walking the entire Registry can yield wierd non-existent keys
+                    # that only their parents know about.
+                    if not child.exists():
+                        continue
 
-                yield from child.walk(access = access, max_depth = max_depth-1)
+                    yield from child.walk(access = access,
+                                          max_depth = None if max_depth is None else max_depth - 1
+                                          )
             
-            yield self
+        yield self
 
 
 
@@ -204,3 +340,19 @@ class Key:
                     if any(search_str in str(val) for search_str in strs):
                         yield key
                         break
+
+
+
+    def _delete(self, save_backup_first = True) -> None:
+        if save_backup_first:
+            self.BackupsMaker.tmp_backup_key(str(self))
+
+        with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
+            winreg.DeleteKey(handle, '')
+
+    def delete(self) -> None:
+        self._delete(save_backup_first = True)
+
+    def consolidate_backups(self, dir_: pathlib.Path = None):
+        self.BackupsMaker.consolidate_tmp_backups(dir_)
+
