@@ -1,11 +1,14 @@
 import winreg
 import enum
 import pathlib
+import collections
 from typing import Self, Any, Iterator, Iterable, Container, Hashable
 from contextlib import contextmanager 
 import warnings
 
 import send2trash
+
+PATH = pathlib.Path(os.getenv('PATH'))
 
 APPDATA = pathlib.Path(os.getenv('APPDATA'))
 
@@ -90,7 +93,7 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 
     tmp_dir: pathlib.Path = None
 
-    tmp_backups: set[pathlib.Path] = set()
+    tmp_backups: dict[pathlib.Path, set] = collections.defaultdict(set)
 
     @classmethod
     @property
@@ -133,7 +136,7 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 
         cls._backup_key(name, tmp_file)
 
-        cls.tmp_backups.add(tmp_file)
+        cls.tmp_backups[dir_].add(tmp_file)
 
         return tmp_file
 
@@ -142,7 +145,6 @@ class CmdKeyBackupMaker(KeyBackupMaker):
     def consolidate_tmp_backups(
         cls,
         dir_: pathlib.Path = None,
-        tmp_backups_dir: pathlib.Path = None,
         ) -> None:
 
         if dir_ is None:
@@ -152,37 +154,60 @@ class CmdKeyBackupMaker(KeyBackupMaker):
             dir_ = cls.backups_dir
 
 
-        tmp_backups_dir = tmp_backups_dir or cls.tmp_dir
+        for tmp_backups_dir, tmp_backups in cls.tmp_backups.items():
 
-        # Check for anything else in the directory that matches our pattern
-        if tmp_backups_dir is not None:
+            # Double check for anything else in the directory that 
+            # matches our pattern, that failed to be consolidated before
             tmp_dir_backups = set(tmp_backups_dir.glob(cls.backup_file_pattern % '*'))
-            previous_tmp_backups = tmp_dir_backups - cls.tmp_backups
+            previous_tmp_backups = tmp_dir_backups - tmp_backups
             if previous_tmp_backups:
                 warnings.warn(f'Also consolidating {previous_tmp_backups=}')
-                cls.tmp_backups |= previous_tmp_backups
+                tmp_backups |= previous_tmp_backups
 
-        # Reverse for readability, so that parents consolidated before children.
-        tmp_backups = reversed(sorted(cls.tmp_backups))
 
-        
-        backups_file = cls.get_unused_path(dir_)
+            
+            backups_file = cls.get_unused_path(dir_)
 
-        header_written = False
+            header_written = False
 
-        with backups_file.open('at') as f_w:
-            for tmp_backup in tmp_backups:
-                with tmp_backup.open('rt') as f_r:
-                    for line in f_r:
-                        if header_written and line.startswith('Windows Registry Editor '):
-                            header_written = True
-                            continue
-                        f_w.write(line)
+            with backups_file.open('at') as f_w:
+                # Sort and Reverse for readability, so that parents appear before children.
+                # Order is most recent first (children backed up before parents), e.g.: 
+                # deleted_and_modified_keys_9.reg, ..., deleted_and_modified_keys_0.reg
+                for tmp_backup in reversed(sorted(tmp_backups)):
+                    with tmp_backup.open('rt') as f_r:
+                        for line in f_r:
+                            if line.startswith('Windows Registry Editor '):
+                                if header_written:
+                                    continue
+                                else:
+                                    header_written = True
+                            f_w.write(line)
 
-                send2trash.send2trash(tmp_backup)
+                    send2trash.send2trash(tmp_backup)
 
 
 class Key:
+
+    __do_not_delete_subkeys_of = (
+        Root.HKCR,
+        )
+
+    __do_not_alter_subkeys_of = (
+        Root.HKCC,
+        )
+
+    __restricted = {
+        Root.HKLM : [r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
+                    ],
+        Root.HKCU : [r'Environment',
+                    ],
+        }
+
+    __uninstallers = {
+        Root.HKLM : [r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+                    ],
+        }
 
     def __init__(
         self,
@@ -341,9 +366,45 @@ class Key:
                         yield key
                         break
 
+    @property
+    def contains_path_env_variable(self) -> bool:
+
+        for candidate_path in self.vals_dict.values():
+
+            # in %PATH% from cmd, the user path is appended to the windows 
+            # system path.  So we test for this by iterating from
+            # start and end of %PATH%.  This won't find any paths in the middle.
+
+            for iterable in [zip(candidate_path.split(';'), PATH.split(';')),
+                            zip(reversed(candidate_path.split(';')), reversed(PATH.split(';'))),
+                            ]:
+
+                for reg_path, os_path in iterable:
+                    if reg_path != os_path:
+                        # Don't return False.  Test next iterable (reversed).
+                        break
+                    #
+                else:
+                    # for/ else - if loop did not hit the break statement, 
+                    # i.e. if all path entries equalled a corresponding one in
+                    # PATH, either from the start of the end.
+                    return True
+
+        return False
+
 
 
     def _delete(self, save_backup_first = True) -> None:
+
+        if self.root in self.__do_not_alter_subkeys_of:
+            raise Exception(f'Cannot modify sub keys of: {self.root.value}')
+
+        if self.root in self.__do_not_delete_subkeys_of:
+            raise Exception(f'Cannot delete sub keys of: {self.root.value}')
+
+        if self.contains_path_env_variable:
+            raise Exception(f'Cannot delete key whose value contains system path data: {self}')
+
         if save_backup_first:
             self.BackupsMaker.tmp_backup_key(str(self))
 
@@ -355,4 +416,7 @@ class Key:
 
     def consolidate_backups(self, dir_: pathlib.Path = None):
         self.BackupsMaker.consolidate_tmp_backups(dir_)
+
+    def __del__(self):
+        self.BackupsMaker.consolidate_tmp_backups()
 

@@ -166,7 +166,7 @@ def _matching_uninstallers(strs: Container[str]) -> Iterator[SearchResult]:
 
 def system_path_registry_entries():
     yield r'HKEY_CURRENT_USER\Environment'
-    yield r'HKEY_USERS\S-1-5-21-3648489184-4041388956-2286264135-1001\Environment'
+    yield r'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
 
 
 def check_uninstallers(strs: Container[str]):
@@ -210,22 +210,6 @@ def search_registry_keys(args: Container[str]) -> None:
     for result in other_keys:
         _pprint_result(prefix='Matching registry key: ', result=result)
 
-
-def _backup_key(name_inc_root: str, path: pathlib.Path) -> None:
-    subprocess.run(f'reg export {name_inc_root} {path}')
-
-
-def backup_hive(name: str) -> None:
-    assert name in ('HKLM','HKCU','HKCR','HKU','HKCC', 'HKDD', 'HKPD')
-    _backup_key(name, BACKUPS_DIR / f'{name.lower()}.reg')
-
-
-def tmp_backup_key(name: str) -> pathlib.Path:
-
-    # Creates TMP_DIR if needed
-    tmp_file = get_unused_path(TMP_DIR)
-    _backup_key(name, tmp_file)
-    return tmp_file
 
 
 
