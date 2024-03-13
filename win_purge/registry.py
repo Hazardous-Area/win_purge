@@ -6,68 +6,64 @@ import subprocess
 import tempfile
 
 
-from .reglib import BaseKey, uninstallers_keys, GlobalRoot
+import reglib
 
 
 
-        
-SearchResult = tuple[BaseKey, str, str, str, Any, dict]
+            # e.g.   key,            display_name, val_name, val, vals
+SearchResult = tuple[reglib.BaseKey, str,          str,      Any, dict]
 
 def _pprint_result(result: SearchResult, prefix: str = ''):
 
-    root, name, key_name, val_name, val, vals = result
+    key, display_name, val_name, val, vals = result
 
-    print(f'{prefix}{name}', end='')
+    print(f'{prefix}{display_name}', end='')
 
-    path_val_names = get_path_val_names(vals)
+    name_of_OS_path_data_entry_name = next(key.names_of_path_env_variables(), None)
 
-    if path_val_names:
-        k = path_val_names[0]
-        print(f', includes {k}: {vals[k]}')
+    if name_of_OS_path_data_entry_name is not None:
+        print(f', includes {name_of_OS_path_data_entry_name}: {vals[name_of_OS_path_data_entry_name]}')
     elif val_name:
         print(f', for: {val_name=}, {val=}', end='')
 
-    print(f' at: {key_name}')
+    print(f' at: {key}')
 
 
 def _search_keys_and_names(
     strs: Container[str], 
-    keys: Iterator[BaseKey],
+    keys: Iterator[reglib.reglib.BaseKey],
     ) -> Iterator[SearchResult]:
 
-
-
     for key in keys:
-        vals = vals_dict(root, key_name)
+        vals = key.registry_values()
             
         display_name = vals.get('DisplayName',
                                 next((val 
                                       for val_name, val in vals.items()
                                       if 'name' in val_name.lower()
                                      ),
-                                     name
+                                     str(key)
                                     )
                                 )
 
 
-        if any(search_str in name.rpartition('\\')[2] for search_str in strs):
-            yield root, display_name, name, '', '', vals
+        if any(search_str in key.rel_key.rpartition('\\')[2] 
+               for search_str in strs):
+            #    
+            yield key, display_name, '', '', vals
         else:
             for val_name, val in vals.items():
                 if any(search_str in str(val) for search_str in strs):
-                    yield root, display_name, name, val_name, val, vals
+                    yield key, display_name, val_name, val, vals
                     break
 
 
 def _matching_uninstallers(strs: Container[str]) -> Iterator[SearchResult]:
-    for uninstaller_key in uninstallers_keys:
-        yield from uninstaller_key.search_keys_and_names()
+    for uninstaller_key in reglib.uninstallers_keys:
+        yield from _search_keys_and_names(uninstaller_key.children())
         
    
 
-def system_path_registry_entries():
-    yield r'HKEY_CURRENT_USER\Environment'
-    yield r'HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Environment'
 
 
 def check_uninstallers(strs: Container[str]):
@@ -83,14 +79,14 @@ def check_uninstallers(strs: Container[str]):
         raise Exception('Matching uninstaller(s) found. Run these uninstallers first before purging. ')
 
 
-
+global_root = reglib.GlobalRoot()
 
 def get_path_keys_and_other_keys(strs: Container[str]):
     path_keys = []
     other_keys = []
     for result in _search_keys_and_names(
                         strs,
-                        _walk_all_roots_dfs_bottom_up(''),
+                        global_root.walk(),
                         ):
         if get_path_val_names(result[5]):
             path_keys.append(result)
@@ -127,43 +123,31 @@ def _purge_registry_keys(args: Container[str]) -> None:
     path_keys, other_keys = get_path_keys_and_other_keys(args)
 
     for result in path_keys:
-        root, name, key_name, val_name, val, vals = result
+        key, __, __, __, vals = result
 
         key_changed = False
 
-        for path_val_name in get_path_val_names(vals):
-            system_path = vals[path_val_name]
-            paths = [path
-                     for path in system_path.split(';')
+        for path_val_name in key.names_of_path_env_variables():
+            system_paths = set(vals[path_val_name].split(';'))
+            matching_paths = {
+                     path
+                     for path in system_paths
                      if any(str_.lower() in path.lower() 
                             for str_ in args
                            )
-                    ]
-            confirmation = input(f'Remove: {paths} from registry key Path value? (y/n/quit)')
+                    }
+            confirmation = input(f'Remove: {matching_paths} from registry key Path value? (y/n/quit)')
 
             if confirmation.lower().startswith('q'):
                 break
 
             if confirmation.lower() == 'y':
-                
-                backup(key_name)
-                
-                if root not in backed_up:
-                    backup_hive(ROOT_KEYS[root])
-                    backed_up.add(root)
+                key.set_registry_value_data(
+                    name = path_val_name,
+                    data = ';'.join(system_paths - matching_paths),
+                    type = 1,
+                    )
 
-                with winreg.OpenKey(root, key_name) as key:
-                    winreg.SetValueEx(
-                        key = key, 
-                        value_name = path_val_name, 
-                        reserved = 0, 
-                        type = 1,
-                        value = ';'.join(path
-                                         for path in system_path.split(';')
-                                         if path not in paths
-                                        ),
-                                
-                        )
 
 
 
@@ -174,41 +158,17 @@ def _purge_registry_keys(args: Container[str]) -> None:
 
         _pprint_result(prefix='Matching registry key: ', result=result)
 
-        root, name, key_name, val_name, val, vals = result
+        key, __, __, __, __ = result
 
-        confirmation = input(f'Delete registry key: {key_name}? (y/n/quit) ')
+        confirmation = input(f'Delete registry key: {key}? (y/n/quit) ')
 
         if confirmation.lower().startswith('q'):
             break
 
         if confirmation.lower() == 'y':
-            if root not in backed_up:
-                backup_hive(ROOT_KEYS[root])
-                backed_up.add(root)
-
-            with winreg.OpenKey(root, key_name, 0, access = winreg.KEY_ALL_ACCESS) as key:
-                winreg.DeleteKey(key, '')
+            key.delete()
 
 
 def purge_registry_keys(args: Container[str]) -> None:
     check_uninstallers(args)
     _purge_registry_keys(args)
-
-# https://stackoverflow.com/a/63290451/20785734
-# def delete_sub_key(root, sub):
-    
-#     try:
-#         open_key = winreg.OpenKey(root, sub, 0, winreg.KEY_ALL_ACCESS)
-#         num, _, _ = winreg.QueryInfoKey(open_key)
-#         for i in range(num):
-#             child = winreg.EnumKey(open_key, 0)
-#             delete_sub_key(open_key, child)
-#         try:
-#            winreg.DeleteKey(open_key, '')
-#         except Exception:
-#            # log deletion failure
-#         finally:
-#            winreg.CloseKey(open_key)
-#     except Exception:
-#         # log opening/closure failure
-

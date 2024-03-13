@@ -5,6 +5,7 @@ import collections
 from typing import Self, Any, Iterator, Iterable, Container, Hashable
 from contextlib import contextmanager 
 import warnings
+import atexit
 
 import send2trash
 
@@ -186,6 +187,9 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 
                     send2trash.send2trash(tmp_backup)
 
+    
+    atexit.register(consolidate_backups)
+
 
 class NoRootError(Exception):
     pass
@@ -203,14 +207,14 @@ class BaseKey:
         )
 
     __restricted = {
-        Root.HKLM : [r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
+        Root.HKLM : [r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment'.lower(),
                     ],
-        Root.HKCU : [r'Environment',
+        Root.HKCU : [r'Environment'.lower(),
                     ],
         }
 
     __uninstallers = {
-        Root.HKLM : [r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+        Root.HKLM : [r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'.lower(),
                     ],
         }
 
@@ -255,6 +259,10 @@ class BaseKey:
         except (OSError, FileExistsError):
             return False
 
+    def restricted(self) -> bool:
+        if self.root not in self.__restricted:
+            return False
+        return self.rel_key.lower() in self.__restricted[self.root]
 
     @contextlib.contextmanager
     def handle(self, access = winreg.KEY_READ):
@@ -272,7 +280,7 @@ class BaseKey:
 
 
 
-    def iter_names_vals_and_types(self) -> Iterator[tuple[str, Any, int]]:
+    def iter_names_data_and_types(self) -> Iterator[tuple[str, Any, int]]:
         with self.handle() as key_handle:
             # winreg.QueryInfoKey actually returns a pair & a type. I.e. a triple.
             __, num_name_data_pairs, __ = winreg.QueryInfoKey(key_handle)
@@ -281,10 +289,10 @@ class BaseKey:
 
 
 
-    def vals_dict(self) -> CaseInsensitiveDict:
+    def registry_values(self) -> CaseInsensitiveDict:
         retval =  CaseInsensitiveDict() 
         dupes = []
-        for name, data, type_ in self.iter_names_vals_and_types():
+        for name, data, type_ in self.iter_names_data_and_types():
             if name in retval:
                 dupes.append(dict(name = name, data = data, type = type_))
             retval[name] = data
@@ -298,9 +306,12 @@ class BaseKey:
 
 
 
-    def contains_path_env_variable(self) -> bool:
+    def names_of_path_env_variables(self) -> Iterator[str]:
 
-        for candidate_path in self.vals_dict.values():
+        for name, candidate_path in self.registry_values.items():
+
+            if not isinstance(candidate_path, str):
+                continue
 
             # in %PATH% from cmd, the user path is appended to the windows 
             # system path.  So we test for this by iterating from
@@ -319,9 +330,10 @@ class BaseKey:
                     # for/ else - if loop did not hit the break statement, 
                     # i.e. if all path entries equalled a corresponding one in
                     # PATH, either from the start of the end.
-                    return True
+                    yield name
 
-        return False
+                    # Don't yield again if the second iterable also tests positive
+                    break
 
 
 
@@ -399,6 +411,7 @@ class Key(BaseKey):
         self.child_class = self.__class__
 
 
+
     @classmethod
     def from_str(cls, key_str: str) -> Self:
         prefix, __, rel_key = key_str.partition('\\')
@@ -406,13 +419,23 @@ class Key(BaseKey):
         return cls(root, rel_key)
 
 
+    def make_tmp_backup(self) -> None:
+        self.BackupsMaker.tmp_backup_key(str(self))
 
-
-    def _delete(self, save_backup_first = True) -> None:
-
+    def check_in_alterable_root(self) -> None:
         if self.root in self.__do_not_alter_subkeys_of:
             raise Exception(f'Cannot modify sub keys of: {self.root.value}')
 
+    def check_not_restricted(self) -> None:
+        if self.restricted:
+            raise Exception(f'Cannot delete restricted key: {self}')
+
+    def _delete(self, save_backup_first: bool = True) -> None:
+
+        self.check_in_alterable_root()
+
+        self.check_not_restricted()
+        
         if self.root in self.__do_not_delete_subkeys_of:
             raise Exception(f'Cannot delete sub keys of: {self.root.value}')
 
@@ -420,7 +443,7 @@ class Key(BaseKey):
             raise Exception(f'Cannot delete key whose value contains system path data: {self}')
 
         if save_backup_first:
-            self.BackupsMaker.tmp_backup_key(str(self))
+            self.make_tmp_backup()
 
         with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
             winreg.DeleteKey(handle, '')
@@ -428,13 +451,46 @@ class Key(BaseKey):
     def delete(self) -> None:
         self._delete(save_backup_first = True)
 
-    def consolidate_backups(self, dir_: pathlib.Path = None):
+    def consolidate_backups(self, dir_: pathlib.Path = None) -> None:
         self.BackupsMaker.consolidate_tmp_backups(dir_)
 
-    def __del__(self):
-        self.BackupsMaker.consolidate_tmp_backups()
+    def _set_registry_value_data(
+        self,
+        name: str,
+        data: Any,
+        type_: int = None,
+        save_backup_first: bool = True
+        ) -> None:
 
+        self.check_in_alterable_root()
 
+        self.check_not_restricted()
+
+        if save_backup_first:
+            self.make_tmp_backup()
+
+        if type_ is None:
+            type_ = 1
+
+        with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
+            winreg.SetValueEx(
+                key = handle, 
+                value_name = path_val_name, 
+                reserved = 0, 
+                type = type_,
+                value = data,    
+                )
+
+    def set_registry_value_data(
+        self,
+        name: str,
+        data: Any,
+        type_: int = None,
+        ) -> None:
+
+        self._set_registry_value_data(name, data, type_, save_backup_first=True)
+
+        
 
 class RootKey(BaseKey):
 
@@ -453,7 +509,7 @@ class GlobalRoot(BaseKey):
     rel_key = ''
     root = None
     exists = lambda: False
-    vals_dict = lambda: {}
+    registry_values = lambda: {}
 
     def children(self) -> Iterator[RootKey]:
         for root in Root:
