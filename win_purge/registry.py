@@ -6,63 +6,12 @@ import subprocess
 import tempfile
 
 
-from .reglib import ROOT_KEYS
-
-('HKLM','HKCU','HKCR','HKU','HKCC')
-
-UNINSTALLERS_REGISTRY_KEY = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+from .reglib import BaseKey, uninstallers_keys, GlobalRoot
 
 
 
-def _walk_all_roots_dfs_bottom_up(
-    key_name: str,
-    root_keys: Iterable[Union[winreg.HKEYType, int]] = ROOT_KEYS,
-    access: int = winreg.KEY_READ,
-    max_depth: int = 5,
-    )-> Iterator[tuple[winreg.HKEYType, str]]:
-
-    for root_key in root_keys:
-
-        # try:
-        #     with winreg.OpenKey(root_key, ''):
-        #         pass
-        # except OSError:
-        #     continue
-
-        print(f'\nKeys under {root_keys[root_key]}:')
-
-        try:
-            yield from _walk_dfs_bottom_up(
-                                    key_name=key_name,
-                                    root_key=root_key,
-                                    access=access,
-                                    max_depth=max_depth,
-                                    )
-        except FileNotFoundError:
-            pass
-        print()
-
-
-def get_names_vals_and_types(root: winreg.HKEYType, key_name: str) -> Iterator[tuple[str, Any, int]]:
-
-    with winreg.OpenKey(root, key_name) as key:
-        __, num_vals, __ = winreg.QueryInfoKey(key)
-        for i in range(num_vals):
-            yield winreg.EnumValue(key, i)
-
-
-def vals_dict(root: winreg.HKEYType, key_name: str) -> dict:
-    return {val_name: val 
-            for val_name, val, __ in get_names_vals_and_types(root, key_nam)
-           }
-
-def get_path_val_names(vals: dict[str, str]) -> list[str]:
-    return [k
-            for k in vals
-            if k.lower() == 'path'
-           ]
         
-SearchResult = tuple[winreg.HKEYType, str, str, str, Any, dict]
+SearchResult = tuple[BaseKey, str, str, str, Any, dict]
 
 def _pprint_result(result: SearchResult, prefix: str = ''):
 
@@ -83,12 +32,12 @@ def _pprint_result(result: SearchResult, prefix: str = ''):
 
 def _search_keys_and_names(
     strs: Container[str], 
-    roots_and_subkey_names: Iterator[tuple[winreg.HKEYType, str]],
+    keys: Iterator[BaseKey],
     ) -> Iterator[SearchResult]:
 
 
 
-    for root, key_name in keys_and_names:
+    for key in keys:
         vals = vals_dict(root, key_name)
             
         display_name = vals.get('DisplayName',
@@ -111,12 +60,10 @@ def _search_keys_and_names(
 
 
 def _matching_uninstallers(strs: Container[str]) -> Iterator[SearchResult]:
-    yield from _search_keys_and_names(strs,
-                                      _walk_dfs_bottom_up(
-                                            key_name=UNINSTALLERS_REGISTRY_KEY,
-                                            root_key=winreg.HKEY_LOCAL_MACHINE,
-                                            ),
-                                      )     
+    for uninstaller_key in uninstallers_keys:
+        yield from uninstaller_key.search_keys_and_names()
+        
+   
 
 def system_path_registry_entries():
     yield r'HKEY_CURRENT_USER\Environment'

@@ -324,26 +324,7 @@ class BaseKey:
         return False
 
 
-    def search_keys_and_names(
-        strs: Container[str], 
-        ) -> Iterator[Self]:
 
-
-
-        for key in self.walk():
-                
-            # Don't yield subkeys of already yielded keys
-            if any(search_str in str(self).rpartition('\\')[2] 
-                   for search_str in strs):
-                yield key
-            else:
-                vals = key.vals_dict()
-                for val_name, val in vals.items():
-                    if any(search_str in str(val) or search_str in str(val_name) 
-                           for search_str in strs
-                          ):
-                        yield key
-                        break
 
     def walk(self,
              access: int = winreg.KEY_READ,
@@ -477,3 +458,5 @@ class GlobalRoot(BaseKey):
     def children(self) -> Iterator[RootKey]:
         for root in Root:
             yield RootKey(root)
+
+uninstallers_keys = [Key(root, rel_key) for root, rel_key in Key.__uninstallers.items()]
