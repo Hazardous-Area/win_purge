@@ -13,52 +13,6 @@ from .reglib import ROOT_KEYS
 UNINSTALLERS_REGISTRY_KEY = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
 
 
-def _walk_dfs_bottom_up(
-    key_name: str,
-    root_key: Union[winreg.HKEYType, int],
-    access: int = winreg.KEY_READ,
-    max_depth: int = 5,
-    )-> Iterator[tuple[winreg.HKEYType, str]]:
-
-    if max_depth == 0:
-        return
-
-    # Catch OSErrors, e.g. for obsolete
-    # winreg.HKEY_DYN_DATA & winreg.HKEY_PERFORMANCE_DATA
-    # and weird inaccessible children.    
-    # With the context manager pattern, error messages are less
-    # able to show the name of the key causing the error, as 
-    # effectively all the code goes under the try:.
-    try:
-        this_key = winreg.OpenKey(root_key, key_name, 0, access)
-    except OSError:
-        pass
-        #print(f'Error opening: {ROOT_KEYS[root_key]}\\{key_name}')
-    else:
-        num_sub_keys, num_vals, last_updated = winreg.QueryInfoKey(this_key)
-        
-
-        # Cache the children so we can access each one using its
-        # individual index, even if the child will be destroyed 
-        # by the caller, which would change the key count used by EnumKey.
-        # Otherwise we must use two different calls, 
-        # i) winreg.EnumKey(this_key, 0) when walking destructively and
-        # ii) winreg.EnumKey(this_key, i) when walking non-destructively.
-        children = [winreg.EnumKey(this_key, i) for i in range(num_sub_keys)]
-
-
-        for child in children:
-            yield from _walk_dfs_bottom_up(
-                            key_name = f'{key_name}\\{child}' if key_name else child,
-                            root_key = root_key, 
-                            access = access, 
-                            max_depth = max_depth-1,
-                            )
-        
-        yield root_key, key_name
-
-        this_key.Close()
-
 
 def _walk_all_roots_dfs_bottom_up(
     key_name: str,

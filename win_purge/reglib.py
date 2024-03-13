@@ -187,7 +187,12 @@ class CmdKeyBackupMaker(KeyBackupMaker):
                     send2trash.send2trash(tmp_backup)
 
 
-class Key:
+class NoRootError(Exception):
+    pass
+
+
+class BaseKey:
+
 
     __do_not_delete_subkeys_of = (
         Root.HKCR,
@@ -209,26 +214,13 @@ class Key:
                     ],
         }
 
-    def __init__(
-        self,
-        root: Root, 
-        rel_key: str,
-        BackupMaker: type = CmdKeyBackupMaker,
-        ):
-        self.root = root
-        self.rel_key = rel_key
-        self.BackupMaker = BackupMaker
-
-
-    @classmethod
-    def from_str(cls, key_str: str) -> Self:
-        prefix, __, rel_key = key_str.partition('\\')
-        root = Root.from_str(prefix)
-        return cls(root, rel_key)
-
+    @property
+    def root_name(self) -> str:
+        # Hook for GlobalRoot
+        return self.root.name
 
     def __str__(self) -> str:
-        return f'{self.root.name}\\{self.rel_key}'
+        return f'{self.root_name}\\{self.rel_key}'
 
 
     @property
@@ -242,7 +234,9 @@ class Key:
 
 
     def _get_handle(self, access = winreg.KEY_READ) -> winreg.HKEYType:
-        # May raise OSError.
+
+        if self.root is None:
+            raise NoRootError(f'Key: {self} does not exist. ')
         # Caller is responsible for calling .Close().  Otherwise
         # __del__ is relied on to do this whenever the garbage
         # collector runs, which can be buggy in 
@@ -277,55 +271,6 @@ class Key:
             handle.Close()
 
 
-    def children(self) -> list[str]:
-        
-        # Enumerate and store all the children at once, so we can 
-        # access each one using its
-        # individual index, even if the child will be destroyed 
-        # by the caller (which would change the key count used by EnumKey).
-        # Otherwise we must use two different calls, 
-        # i) winreg.EnumKey(key, 0) when iterating destructively and
-        # ii) winreg.EnumKey(key, i) when iterating non-destructively.
-
-        with self.handle() as handle:
-            num_sub_keys, __, __ = winreg.QueryInfoKey(handle)
-            return [winreg.EnumKey(handle, i) for i in range(num_sub_keys)]
-
-
-    def walk(self,
-             access: int = winreg.KEY_READ,
-             max_depth: int | None  = 5,
-             skip_children: Callable[[Self], bool] = None,
-             ) -> Iterator[Self]:
-        """    Depth First Search, with each node's children cached.
-               By default the nodes are yielded Bottom-Up, from the 
-               depth cap of max_depth upwards, unless a 
-               predicate Callable skip_children is specified, (e.g. 
-               if all sub keys will be deleted anyway) in which 
-               case the nodes are returned Lowest-Up. """
-        if max_depth == 0:
-            return
-
-        if skip_children is None or not skip_children(self):
-            with self.handle(access = access) as handle:
-                num_sub_keys, num_vals, last_updated = winreg.QueryInfoKey(handle)
-
-                for child_str in self.children():
-
-                    child = self.__class__(self.root, f'{self.rel_key}\\{child_str}')
-
-                    # Walking the entire Registry can yield wierd non-existent keys
-                    # that only their parents know about.
-                    if not child.exists():
-                        continue
-
-                    yield from child.walk(access = access,
-                                          max_depth = None if max_depth is None else max_depth - 1
-                                          )
-            
-        yield self
-
-
 
     def iter_names_vals_and_types(self) -> Iterator[tuple[str, Any, int]]:
         with self.handle() as key_handle:
@@ -333,6 +278,8 @@ class Key:
             __, num_name_data_pairs, __ = winreg.QueryInfoKey(key_handle)
             for i in range(num_name_data_pairs):
                 yield winreg.EnumValue(key_handle, i)
+
+
 
     def vals_dict(self) -> CaseInsensitiveDict:
         retval =  CaseInsensitiveDict() 
@@ -348,25 +295,9 @@ class Key:
         return retval
 
 
-    def search_keys_and_names(
-        strs: Container[str], 
-        ) -> Iterator[Self]:
 
 
 
-        for key in self.walk():
-            vals = self.vals_dict()
-                
-            # Don't yield subkeys of already yielded keys
-            if any(search_str in str(self).rpartition('\\')[2] for search_str in strs):
-                yield key
-            else:
-                for val_name, val in vals.items():
-                    if any(search_str in str(val) for search_str in strs):
-                        yield key
-                        break
-
-    @property
     def contains_path_env_variable(self) -> bool:
 
         for candidate_path in self.vals_dict.values():
@@ -393,6 +324,108 @@ class Key:
         return False
 
 
+    def search_keys_and_names(
+        strs: Container[str], 
+        ) -> Iterator[Self]:
+
+
+
+        for key in self.walk():
+                
+            # Don't yield subkeys of already yielded keys
+            if any(search_str in str(self).rpartition('\\')[2] 
+                   for search_str in strs):
+                yield key
+            else:
+                vals = key.vals_dict()
+                for val_name, val in vals.items():
+                    if any(search_str in str(val) or search_str in str(val_name) 
+                           for search_str in strs
+                          ):
+                        yield key
+                        break
+
+    def walk(self,
+             access: int = winreg.KEY_READ,
+             max_depth: int | None  = 5,
+             skip_children: Callable[[BaseKey], bool] = None,
+             ) -> Iterator[BaseKey]:
+        """    Depth First Search, with each node's children cached.
+               By default the nodes are yielded Bottom-Up, from the 
+               depth cap of max_depth upwards, unless a 
+               predicate Callable skip_children is specified, (e.g. 
+               if all sub keys will be deleted anyway) in which 
+               case the nodes are returned Lowest-Up. """
+        if max_depth == 0:
+            return
+
+        if skip_children is None or not skip_children(self):
+            with self.handle(access = access) as handle:
+                num_sub_keys, num_vals, last_updated = winreg.QueryInfoKey(handle)
+
+                for child in self.children():
+
+
+                    # Walking the entire Registry can yield wierd non-existent keys
+                    # that only their parents know about.
+                    if not child.exists():
+                        continue
+
+                    yield from child.walk(access = access,
+                                          max_depth = None if max_depth is None else max_depth - 1
+                                          )
+            
+        yield self
+
+
+    def children(self) -> Iterator[BaseKey]:
+        
+        # Enumerate and store all the child strings at once, so we can 
+        # access each one using its
+        # individual index, even if the child key will be destroyed 
+        # by the caller (which would change the key count used by EnumKey).
+        # Otherwise we must use two different calls, 
+        # i) winreg.EnumKey(key, 0) when iterating destructively and
+        # ii) winreg.EnumKey(key, i) when iterating non-destructively.
+
+        with self.handle() as handle:
+            num_sub_keys, __, __ = winreg.QueryInfoKey(handle)
+            child_names = [winreg.EnumKey(handle, i) for i in range(num_sub_keys)]
+
+        for child_name in child_names:
+            yield self.child_class(self.root, f'{self.rel_key}\\{child_name}')
+
+        
+
+
+
+class Key(BaseKey):
+
+
+    def __init__(
+        self,
+        root: Root, 
+        rel_key: str,
+        BackupMaker: type = CmdKeyBackupMaker,
+        ):
+        if not rel_key:
+            raise Exception(f'Keys cannot be created for root keys. '
+                            f'Use RootKey instead.  Got: {rel_key=}'
+                           )
+        self.root = root
+        self.rel_key = rel_key
+        self.BackupMaker = BackupMaker
+        self.child_class = self.__class__
+
+
+    @classmethod
+    def from_str(cls, key_str: str) -> Self:
+        prefix, __, rel_key = key_str.partition('\\')
+        root = Root.from_str(prefix)
+        return cls(root, rel_key)
+
+
+
 
     def _delete(self, save_backup_first = True) -> None:
 
@@ -402,7 +435,7 @@ class Key:
         if self.root in self.__do_not_delete_subkeys_of:
             raise Exception(f'Cannot delete sub keys of: {self.root.value}')
 
-        if self.contains_path_env_variable:
+        if self.contains_path_env_variable():
             raise Exception(f'Cannot delete key whose value contains system path data: {self}')
 
         if save_backup_first:
@@ -420,3 +453,27 @@ class Key:
     def __del__(self):
         self.BackupsMaker.consolidate_tmp_backups()
 
+
+
+class RootKey(BaseKey):
+
+    rel_key = ''
+    child_class = Key
+
+    def __init__(self, root: Root):
+        self.root = root
+
+
+class GlobalRoot(BaseKey):
+
+
+    HKEY_Const = None
+    root_name = 'Pseudo Global Root'
+    rel_key = ''
+    root = None
+    exists = lambda: False
+    vals_dict = lambda: {}
+
+    def children(self) -> Iterator[RootKey]:
+        for root in Root:
+            yield RootKey(root)
