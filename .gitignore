@@ -1,2 +1,4 @@
 *.reg
 .vscode
+.ruff_cache
+.mypy_cache
