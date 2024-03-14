@@ -1,17 +1,28 @@
+from __future__ import annotations
+import os
+import abc
+from typing import Self, Any, Iterator, Iterable, Hashable, Callable
 import winreg
 import enum
 import pathlib
 import collections
-from typing import Self, Any, Iterator, Iterable, Container, Hashable
-from contextlib import contextmanager 
+import contextlib 
 import warnings
 import atexit
+import subprocess
+import tempfile
 
 import send2trash
 
-PATH = pathlib.Path(os.getenv('PATH'))
 
-APPDATA = pathlib.Path(os.getenv('APPDATA'))
+def getenv(name: str) -> str:
+    # Convenience function for brevity and to pass type checking
+    return os.getenv(name) or ''
+
+
+PATH = pathlib.Path(getenv('PATH'))
+
+APPDATA = pathlib.Path(getenv('APPDATA'))
 
 ROOT_KEYS = {winreg.HKEY_CLASSES_ROOT: 'HKCR',
              winreg.HKEY_CURRENT_CONFIG: 'HKCC',
@@ -74,11 +85,13 @@ class CaseInsensitiveDict(dict):
 
 
 class KeyBackupMaker(abc.ABC):
+    
     @abc.abstractmethod
-    def tmp_backup_key(name: str):
+    def tmp_backup_key(cls, name: str):
         pass
-
-    def consolidate_backups() -> None:
+    
+    @classmethod
+    def consolidate_tmp_backups(cls, dir_: pathlib.Path) -> None:
         pass
 
 
@@ -90,16 +103,13 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 
     app_folder_name: str = pathlib.Path(__file__).parent.stem
 
-    backups_dir: pathlib.Path = None
+    backups_dir: pathlib.Path | None = None
 
-    tmp_dir: pathlib.Path = None
+    tmp_dir: pathlib.Path | None = None
 
     tmp_backups: dict[pathlib.Path, set] = collections.defaultdict(set)
 
-    @classmethod
-    @property
-    def backup_file_pattern(cls):
-        return f'{cls.prefix}%s{cls.ext}'
+    backup_file_pattern = f'{prefix}%s{ext}'
 
     @classmethod
     def get_unused_path(cls, dir_: pathlib.Path) -> pathlib.Path:
@@ -117,11 +127,6 @@ class CmdKeyBackupMaker(KeyBackupMaker):
     @staticmethod
     def _backup_key(name_inc_root: str, path: pathlib.Path) -> None:
         subprocess.run(f'reg export {name_inc_root} {path}')
-
-    @classmethod
-    def backup_hive(cls, name: str) -> None:
-        assert name in Root.__members__
-        cls._backup_key(name, BACKUPS_DIR / f'{name.lower()}{cls.ext}')
 
 
     @classmethod
@@ -150,7 +155,7 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 
         if dir_ is None:
             if cls.backups_dir is None:
-                cls.backups_dir = APPDATA / self.app_folder_name / 'registry_backups'
+                cls.backups_dir = APPDATA / cls.app_folder_name / 'registry_backups'
                 cls.backups_dir.mkdir(exist_ok = True, parents = True)
             dir_ = cls.backups_dir
 
@@ -188,7 +193,7 @@ class CmdKeyBackupMaker(KeyBackupMaker):
                     send2trash.send2trash(tmp_backup)
 
     
-    atexit.register(consolidate_backups)
+    atexit.register(consolidate_tmp_backups)
 
 
 class NoRootError(Exception):
@@ -475,7 +480,7 @@ class Key(BaseKey):
         with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
             winreg.SetValueEx(
                 key = handle, 
-                value_name = path_val_name, 
+                value_name = name, 
                 reserved = 0, 
                 type = type_,
                 value = data,    
@@ -490,7 +495,7 @@ class Key(BaseKey):
 
         self._set_registry_value_data(name, data, type_, save_backup_first=True)
 
-        
+
 
 class RootKey(BaseKey):
 

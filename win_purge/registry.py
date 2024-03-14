@@ -1,10 +1,4 @@
-import sys
-from typing import Iterable, Iterator, Callable, Union, Any, Container
-import winreg
-import pathlib
-import subprocess
-import tempfile
-
+from typing import Iterator, Any, Collection
 
 import reglib
 
@@ -30,7 +24,7 @@ def _pprint_result(result: SearchResult, prefix: str = ''):
 
 
 def _search_keys_and_names(
-    strs: Container[str], 
+    strs: Collection[str], 
     keys: Iterator[reglib.reglib.BaseKey],
     ) -> Iterator[SearchResult]:
 
@@ -58,15 +52,15 @@ def _search_keys_and_names(
                     break
 
 
-def _matching_uninstallers(strs: Container[str]) -> Iterator[SearchResult]:
+def _matching_uninstallers(strs: Collection[str]) -> Iterator[SearchResult]:
     for uninstaller_key in reglib.uninstallers_keys:
-        yield from _search_keys_and_names(uninstaller_key.children())
+        yield from _search_keys_and_names(strs, keys = uninstaller_key.children())
         
    
 
 
 
-def check_uninstallers(strs: Container[str]):
+def check_uninstallers(strs: Collection[str]):
     
     found = []
 
@@ -81,14 +75,15 @@ def check_uninstallers(strs: Container[str]):
 
 global_root = reglib.GlobalRoot()
 
-def get_path_keys_and_other_keys(strs: Container[str]):
+def get_path_keys_and_other_keys(strs: Collection[str]):
     path_keys = []
     other_keys = []
     for result in _search_keys_and_names(
                         strs,
                         global_root.walk(),
                         ):
-        if get_path_val_names(result[5]):
+        key, __, ___, ____, _____ = result
+        if next(key.names_of_path_env_variables(), False):
             path_keys.append(result)
         else:
             other_keys.append(result)
@@ -96,7 +91,7 @@ def get_path_keys_and_other_keys(strs: Container[str]):
     return path_keys, other_keys
 
 
-def search_registry_keys(args: Container[str]) -> None:
+def search_registry_keys(args: Collection[str]) -> None:
     print('Searching for matching Registry keys.  Run with "--purge-registry" to delete the following registry keys:')
     
     path_keys, other_keys = get_path_keys_and_other_keys(args)
@@ -110,22 +105,15 @@ def search_registry_keys(args: Container[str]) -> None:
 
 
 
-def _purge_registry_keys(args: Container[str]) -> None:
+def _purge_registry_keys(args: Collection[str]) -> None:
     print('WARNING!! Deleting the following Registry keys: ')
 
-    backed_up = set()
-
-    tmp_backups = []
-
-    def backup(key_name: str) -> None:
-        tmp_backups.append(tmp_backup_key(key_name))
 
     path_keys, other_keys = get_path_keys_and_other_keys(args)
 
     for result in path_keys:
         key, __, __, __, vals = result
 
-        key_changed = False
 
         for path_val_name in key.names_of_path_env_variables():
             system_paths = set(vals[path_val_name].split(';'))
@@ -169,6 +157,6 @@ def _purge_registry_keys(args: Container[str]) -> None:
             key.delete()
 
 
-def purge_registry_keys(args: Container[str]) -> None:
+def purge_registry_keys(args: Collection[str]) -> None:
     check_uninstallers(args)
     _purge_registry_keys(args)
