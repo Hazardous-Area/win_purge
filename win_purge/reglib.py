@@ -212,6 +212,7 @@ class NoRootError(Exception):
 class JoeRootError(Exception):
     """ Out for a Duck! """
 
+
 class ReadableKey:
 
 
@@ -472,7 +473,7 @@ class ReadableKey:
         return next(key.search_for_text(strs), None) is not None
 
 
-    def search_subkeys_for_text(
+    def search_key_and_subkeys_for_text(
         self,
         strs: Collection[str],
         search_children_of_keys_containing_text: bool = False 

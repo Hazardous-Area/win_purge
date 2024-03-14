@@ -21,38 +21,14 @@ def _pprint_result(result: reglib.SearchResult, prefix: str = ''):
     print(f' at: {key}')
 
 
-def _search_keys_and_names(
-    strs: Collection[str], 
-    keys: Iterator[reglib.ReadableKey],
-    ) -> Iterator[reglib.SearchResult]:
-
-    for key in keys:
-        vals = key.registry_values()
-            
-        display_name = vals.get('DisplayName',
-                                next((val 
-                                      for val_name, val in vals.items()
-                                      if 'name' in val_name.lower()
-                                     ),
-                                     str(key)
-                                    )
-                                )
-
-
-        if any(str_ in key.rel_key.rpartition('\\')[2] 
-               for str_ in strs):
-            #    
-            yield key, display_name, '', '', vals
-        else:
-            for val_name, val in vals.items():
-                if any(str_ in str(val) for str_ in strs):
-                    yield key, display_name, val_name, val, vals
-                    break
 
 
 def _matching_uninstallers(strs: Collection[str]) -> Iterator[reglib.SearchResult]:
     for uninstaller_key in reglib.uninstallers_keys:
-        yield from _search_keys_and_names(strs, keys = uninstaller_key.children())
+        yield from uninstaller_key.search_key_and_subkeys_for_text(
+                                    strs,
+                                    search_children_of_keys_containing_text = True,
+                                    )
         
    
 
@@ -76,10 +52,7 @@ global_root = reglib.GlobalRoot()
 def get_path_keys_and_other_keys(strs: Collection[str]):
     path_keys = []
     other_keys = []
-    for result in _search_keys_and_names(
-                        strs,
-                        global_root.walk(),
-                        ):
+    for result in global_root.search_key_and_subkeys_for_text(strs):
         key, __, ___, ____, _____ = result
         if key.contains_path_env_variable():
             path_keys.append(result)
@@ -128,7 +101,8 @@ def _purge_registry_keys(args: Collection[str]) -> None:
                 break
 
             if confirmation.lower() == 'y':
-                key.set_registry_value_data(
+                writeable_key = reglib.ReadAndWritableKey.from_key(key)
+                writeable_key.set_registry_value_data(
                     name = path_val_name,
                     data = ';'.join(system_paths - matching_paths),
                     type = 1,
@@ -152,7 +126,8 @@ def _purge_registry_keys(args: Collection[str]) -> None:
             break
 
         if confirmation.lower() == 'y':
-            key.delete()
+            deletable_key = reglib.DeletableKey.from_key(key)
+            deletable_key.delete()
 
 
 def purge_registry_keys(args: Collection[str]) -> None:
