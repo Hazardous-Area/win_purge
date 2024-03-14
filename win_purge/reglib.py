@@ -209,6 +209,8 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 class NoRootError(Exception):
     pass
 
+class JoeRootError(Exception):
+    """ Out for a Duck! """
 
 class ReadableKey:
 
