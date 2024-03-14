@@ -1,6 +1,6 @@
 from typing import Iterator, Any, Collection
 
-import reglib
+from . import reglib
 
 
 
@@ -25,7 +25,7 @@ def _pprint_result(result: SearchResult, prefix: str = ''):
 
 def _search_keys_and_names(
     strs: Collection[str], 
-    keys: Iterator[reglib.reglib.BaseKey],
+    keys: Iterator[reglib.BaseKey],
     ) -> Iterator[SearchResult]:
 
     for key in keys:
@@ -83,7 +83,7 @@ def get_path_keys_and_other_keys(strs: Collection[str]):
                         global_root.walk(),
                         ):
         key, __, ___, ____, _____ = result
-        if next(key.names_of_path_env_variables(), False):
+        if key.contains_path_env_variable():
             path_keys.append(result)
         else:
             other_keys.append(result)

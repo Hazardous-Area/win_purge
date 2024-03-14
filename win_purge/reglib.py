@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 import abc
-from typing import Self, Any, Iterator, Iterable, Hashable, Callable
+from typing import Self, Any, Iterator, Iterable, Hashable, Callable, Optional, Type
 import winreg
 import enum
 import pathlib
@@ -20,7 +20,7 @@ def getenv(name: str) -> str:
     return os.getenv(name) or ''
 
 
-PATH = pathlib.Path(getenv('PATH'))
+PATH = getenv('PATH')
 
 APPDATA = pathlib.Path(getenv('APPDATA'))
 
@@ -72,7 +72,7 @@ class CaseInsensitiveDict(dict):
     def _lower_if_str(k):
         return k.lower() if isinstance(k, str) else k
     
-    def __init__(self, items: Iterable[tuple[Hashable, Any]]):
+    def __init__(self, items: Iterable[tuple[Hashable, Any]] = []):
         super().__init__((self._lower_if_str(k), v) for k, v in items)
 
     def __getitem__(self, k: Hashable):
@@ -87,11 +87,12 @@ class CaseInsensitiveDict(dict):
 class KeyBackupMaker(abc.ABC):
     
     @abc.abstractmethod
+    @classmethod
     def tmp_backup_key(cls, name: str):
         pass
     
     @classmethod
-    def consolidate_tmp_backups(cls, dir_: pathlib.Path) -> None:
+    def consolidate_tmp_backups(cls, dir_: Optional[pathlib.Path]) -> None:
         pass
 
 
@@ -130,7 +131,11 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 
 
     @classmethod
-    def tmp_backup_key(cls, name: str, dir_: pathlib.Path = None) -> pathlib.Path:
+    def tmp_backup_key(
+        cls,
+        name: str,
+        dir_: Optional[pathlib.Path] = None,
+        ) -> pathlib.Path:
 
         if dir_ is None:
             if cls.tmp_dir is None:
@@ -149,8 +154,8 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 
     @classmethod
     def consolidate_tmp_backups(
-        cls,
-        dir_: pathlib.Path = None,
+        cls,        
+        dir_: Optional[pathlib.Path] = None,
         ) -> None:
 
         if dir_ is None:
@@ -193,15 +198,36 @@ class CmdKeyBackupMaker(KeyBackupMaker):
                     send2trash.send2trash(tmp_backup)
 
     
-    atexit.register(consolidate_tmp_backups)
+    atexit.register(consolidate_tmp_backups, CmdKeyBackupMaker)
 
 
 class NoRootError(Exception):
     pass
 
 
-class BaseKey:
+class BaseKey(abc.ABC):
 
+    @abc.abstractmethod
+    def __init__(
+        self,
+        root: Optional[Root], 
+        rel_key: str,
+        ):
+        pass
+
+    @property
+    def rel_key(self):
+        return self._rel_key
+
+    @property
+    def root(self):
+        return self._root
+
+    @classmethod
+    def from_str(cls, key_str: str) -> Self:
+        prefix, __, rel_key = key_str.partition('\\')
+        root = Root.from_str(prefix) if prefix else None
+        return cls(root, rel_key)
 
     __do_not_delete_subkeys_of = (
         Root.HKCR,
@@ -224,25 +250,25 @@ class BaseKey:
         }
 
     @property
-    def root_name(self) -> str:
+    def root_name(self):
         # Hook for GlobalRoot
         return self.root.name
 
-    def __str__(self) -> str:
+    def __str__(self):
         return f'{self.root_name}\\{self.rel_key}'
 
 
     @property
-    def sub_key(self) -> str:
+    def sub_key(self):
         return '\\'.join([self.root.name, self.rel_key])
 
 
     @property
-    def HKEY_Const(self) -> int:
+    def HKEY_Const(self):
         return self.root.HKEY_Const
 
 
-    def _get_handle(self, access = winreg.KEY_READ) -> winreg.HKEYType:
+    def _get_handle(self, access = winreg.KEY_READ):
 
         if self.root is None:
             raise NoRootError(f'Key: {self} does not exist. ')
@@ -264,7 +290,7 @@ class BaseKey:
         except (OSError, FileExistsError):
             return False
 
-    def restricted(self) -> bool:
+    def restricted(self):
         if self.root not in self.__restricted:
             return False
         return self.rel_key.lower() in self.__restricted[self.root]
@@ -313,7 +339,7 @@ class BaseKey:
 
     def names_of_path_env_variables(self) -> Iterator[str]:
 
-        for name, candidate_path in self.registry_values.items():
+        for name, candidate_path in self.registry_values().items():
 
             if not isinstance(candidate_path, str):
                 continue
@@ -323,7 +349,7 @@ class BaseKey:
             # start and end of %PATH%.  This won't find any paths in the middle.
 
             for iterable in [zip(candidate_path.split(';'), PATH.split(';')),
-                            zip(reversed(candidate_path.split(';')), reversed(PATH.split(';'))),
+                             zip(reversed(candidate_path.split(';')), reversed(PATH.split(';'))),
                             ]:
 
                 for reg_path, os_path in iterable:
@@ -340,13 +366,15 @@ class BaseKey:
                     # Don't yield again if the second iterable also tests positive
                     break
 
-
+    
+    def contains_path_env_variable(self) -> bool:
+        return next(self.names_of_path_env_variables(), None) is not None
 
 
     def walk(self,
              access: int = winreg.KEY_READ,
              max_depth: int | None  = 5,
-             skip_children: Callable[[BaseKey], bool] = None,
+             skip_children: Optional[Callable[[BaseKey], bool]] = None,
              ) -> Iterator[BaseKey]:
         """    Depth First Search, with each node's children cached.
                By default the nodes are yielded Bottom-Up, from the 
@@ -376,7 +404,7 @@ class BaseKey:
         yield self
 
 
-    def children(self) -> Iterator[BaseKey]:
+    def children(self):
         
         # Enumerate and store all the child strings at once, so we can 
         # access each one using its
@@ -404,14 +432,16 @@ class Key(BaseKey):
         self,
         root: Root, 
         rel_key: str,
-        BackupMaker: type = CmdKeyBackupMaker,
+        BackupMaker: Type[KeyBackupMaker] = CmdKeyBackupMaker,
         ):
         if not rel_key:
             raise Exception(f'Keys cannot be created for root keys. '
                             f'Use RootKey instead.  Got: {rel_key=}'
                            )
-        self.root = root
-        self.rel_key = rel_key
+        self._root = root
+        self._rel_key = rel_key
+
+        # Doesn't need to be instantiated.
         self.BackupMaker = BackupMaker
         self.child_class = self.__class__
 
@@ -425,14 +455,14 @@ class Key(BaseKey):
 
 
     def make_tmp_backup(self) -> None:
-        self.BackupsMaker.tmp_backup_key(str(self))
+        self.BackupMaker.tmp_backup_key(str(self))
 
     def check_in_alterable_root(self) -> None:
         if self.root in self.__do_not_alter_subkeys_of:
             raise Exception(f'Cannot modify sub keys of: {self.root.value}')
 
     def check_not_restricted(self) -> None:
-        if self.restricted:
+        if self.restricted():
             raise Exception(f'Cannot delete restricted key: {self}')
 
     def _delete(self, save_backup_first: bool = True) -> None:
@@ -456,14 +486,14 @@ class Key(BaseKey):
     def delete(self) -> None:
         self._delete(save_backup_first = True)
 
-    def consolidate_backups(self, dir_: pathlib.Path = None) -> None:
-        self.BackupsMaker.consolidate_tmp_backups(dir_)
+    def consolidate_backups(self, dir_: Optional[pathlib.Path] = None) -> None:
+        self.BackupMaker.consolidate_tmp_backups(dir_)
 
     def _set_registry_value_data(
         self,
         name: str,
         data: Any,
-        type_: int = None,
+        type_: Optional[int] = None,
         save_backup_first: bool = True
         ) -> None:
 
@@ -479,18 +509,18 @@ class Key(BaseKey):
 
         with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
             winreg.SetValueEx(
-                key = handle, 
-                value_name = name, 
-                reserved = 0, 
-                type = type_,
-                value = data,    
+                handle, #key = 
+                name, # value_name = name, 
+                0, # reserved = 0
+                type_, # type = type_
+                data, # value = data   
                 )
 
     def set_registry_value_data(
         self,
         name: str,
         data: Any,
-        type_: int = None,
+        type_: Optional[int] = None,
         ) -> None:
 
         self._set_registry_value_data(name, data, type_, save_backup_first=True)
@@ -499,25 +529,53 @@ class Key(BaseKey):
 
 class RootKey(BaseKey):
 
-    rel_key = ''
     child_class = Key
 
-    def __init__(self, root: Root):
-        self.root = root
+    def __init__(self, root: Root, rel_key: str = ''):
+
+        # Keep rel_key in __init__ args so that from_str still works as is.
+        if rel_key:
+            raise Exception(f'RootKeys cannot have a relative key. Got: {rel_key=}')
+
+        self._root = root
+        self._rel_key = ''
 
 
 class GlobalRoot(BaseKey):
 
+    child_class = RootKey
 
-    HKEY_Const = None
-    root_name = 'Pseudo Global Root'
-    rel_key = ''
-    root = None
-    exists = lambda: False
-    registry_values = lambda: {}
+    def __init__(self, root: Optional[Root] = None, rel_key: str = ''):
+        
+        if root is not None:
+            raise Exception(f'GlobalRoot has no root itself.  Got: {root=}')
+
+        if rel_key:
+            raise Exception(f'GlobalRoot cannot have a relative key. Got: {rel_key=}')
+        
+        self._root = None
+        self._rel_key = ''
+
+
+    @property
+    def HKEY_Const(self) -> None:
+        return None
+
+    @property
+    def root_name(self) -> str:
+        return 'Pseudo Global Root'
+
+    def exists(self):
+        return False
+
+    def registry_values(self):
+        return CaseInsensitiveDict()
 
     def children(self) -> Iterator[RootKey]:
         for root in Root:
             yield RootKey(root)
 
-uninstallers_keys = [Key(root, rel_key) for root, rel_key in Key.__uninstallers.items()]
+uninstallers_keys = [Key(root, rel_key) 
+                     for root, rel_keys in Key.__uninstallers.items()
+                     for rel_key in rel_keys
+                    ]
