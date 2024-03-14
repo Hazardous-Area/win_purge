@@ -4,10 +4,8 @@ from . import reglib
 
 
 
-            # e.g.   key,            display_name, val_name, val, vals
-SearchResult = tuple[reglib.BaseKey, str,          str,      Any, dict]
 
-def _pprint_result(result: SearchResult, prefix: str = ''):
+def _pprint_result(result: reglib.SearchResult, prefix: str = ''):
 
     key, display_name, val_name, val, vals = result
 
@@ -25,8 +23,8 @@ def _pprint_result(result: SearchResult, prefix: str = ''):
 
 def _search_keys_and_names(
     strs: Collection[str], 
-    keys: Iterator[reglib.BaseKey],
-    ) -> Iterator[SearchResult]:
+    keys: Iterator[reglib.ReadableKey],
+    ) -> Iterator[reglib.SearchResult]:
 
     for key in keys:
         vals = key.registry_values()
@@ -41,18 +39,18 @@ def _search_keys_and_names(
                                 )
 
 
-        if any(search_str in key.rel_key.rpartition('\\')[2] 
-               for search_str in strs):
+        if any(str_ in key.rel_key.rpartition('\\')[2] 
+               for str_ in strs):
             #    
             yield key, display_name, '', '', vals
         else:
             for val_name, val in vals.items():
-                if any(search_str in str(val) for search_str in strs):
+                if any(str_ in str(val) for str_ in strs):
                     yield key, display_name, val_name, val, vals
                     break
 
 
-def _matching_uninstallers(strs: Collection[str]) -> Iterator[SearchResult]:
+def _matching_uninstallers(strs: Collection[str]) -> Iterator[reglib.SearchResult]:
     for uninstaller_key in reglib.uninstallers_keys:
         yield from _search_keys_and_names(strs, keys = uninstaller_key.children())
         

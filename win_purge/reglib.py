@@ -1,7 +1,8 @@
 from __future__ import annotations
 import os
 import abc
-from typing import Self, Any, Iterator, Iterable, Hashable, Callable, Optional, Type
+from typing import (Self, Any, Iterator, Iterable, Hashable, Callable, 
+                    Optional, Type, Collection)
 import winreg
 import enum
 import pathlib
@@ -11,6 +12,7 @@ import warnings
 import atexit
 import subprocess
 import tempfile
+import functools
 
 import send2trash
 
@@ -95,6 +97,8 @@ class KeyBackupMaker(abc.ABC):
     def consolidate_tmp_backups(cls, dir_: Optional[pathlib.Path]) -> None:
         pass
 
+    backs_up_sub_keys_too = False
+
 
 class CmdKeyBackupMaker(KeyBackupMaker):
     
@@ -129,6 +133,7 @@ class CmdKeyBackupMaker(KeyBackupMaker):
     def _backup_key(name_inc_root: str, path: pathlib.Path) -> None:
         subprocess.run(f'reg export {name_inc_root} {path}')
 
+    backs_up_sub_keys_too = True
 
     @classmethod
     def tmp_backup_key(
@@ -205,15 +210,26 @@ class NoRootError(Exception):
     pass
 
 
-class BaseKey(abc.ABC):
+class ReadableKey:
 
-    @abc.abstractmethod
-    def __init__(
-        self,
-        root: Optional[Root], 
-        rel_key: str,
-        ):
-        pass
+
+    def __init__(self, root: Optional[Root], rel_key: str):
+
+        
+        if root is None:
+            raise Exception(f'Key has no root.  '
+                            f'Got: {root=}. '
+                            f' Specify one from {list(Root)=}'
+                           )
+
+        # Tell Mypy self._root can be None in subclasses (i.e. GlobalRoot)
+        self._root : Root | None = root
+        self._rel_key = rel_key
+
+        # Class specific overridable default class to assign to 
+        # create children from, in self.children and self.walk
+        # if None, uses self.__class__
+        self.__child_class = self.__class__
 
     @property
     def rel_key(self):
@@ -224,28 +240,33 @@ class BaseKey(abc.ABC):
         return self._root
 
     @classmethod
-    def from_str(cls, key_str: str) -> Self:
-        prefix, __, rel_key = key_str.partition('\\')
+    def from_str(cls, str_: str) -> Self:
+        prefix, __, rel_key = str_.partition('\\')
+        # prefix = '' => Should be GlobalRoot
         root = Root.from_str(prefix) if prefix else None
         return cls(root, rel_key)
 
-    __do_not_delete_subkeys_of = (
-        Root.HKCR,
-        )
+    @classmethod
+    def from_key(cls, key: Self):
+        return cls(key.root, key.rel_key)
 
-    __do_not_alter_subkeys_of = (
-        Root.HKCC,
-        )
+    __do_not_delete_subkeys_of = {
+        Root.HKCR: [''],
+        }
+
+    __do_not_alter_subkeys_of = {
+        Root.HKCC: [''],
+        }
 
     __restricted = {
-        Root.HKLM : [r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment'.lower(),
+        Root.HKLM : [r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
                     ],
-        Root.HKCU : [r'Environment'.lower(),
+        Root.HKCU : [r'Environment',
                     ],
         }
 
     __uninstallers = {
-        Root.HKLM : [r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'.lower(),
+        Root.HKLM : [r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
                     ],
         }
 
@@ -257,6 +278,11 @@ class BaseKey(abc.ABC):
     def __str__(self):
         return f'{self.root_name}\\{self.rel_key}'
 
+    def __hash__(self):
+        # Instances for the same registry key will have the same hash,
+        # even if e.g. they are of different sub-classes or own 
+        # different KeyBackupMakers.
+        return hash( (self.root, self.rel_key) )
 
     @property
     def sub_key(self):
@@ -291,9 +317,10 @@ class BaseKey(abc.ABC):
             return False
 
     def restricted(self):
-        if self.root not in self.__restricted:
-            return False
-        return self.rel_key.lower() in self.__restricted[self.root]
+        for rel_key in self.__restricted.get(self.root, []):
+            if self.rel_key.lower().startswith(rel_key.lower()):
+                return True
+        return False
 
     @contextlib.contextmanager
     def handle(self, access = winreg.KEY_READ):
@@ -374,8 +401,9 @@ class BaseKey(abc.ABC):
     def walk(self,
              access: int = winreg.KEY_READ,
              max_depth: int | None  = 5,
-             skip_children: Optional[Callable[[BaseKey], bool]] = None,
-             ) -> Iterator[BaseKey]:
+             skip_children: Optional[Callable[[Self], bool]] = None,
+             child_class: Optional[Type[ReadableKey]] = None,
+             ) -> Iterator[Self]:
         """    Depth First Search, with each node's children cached.
                By default the nodes are yielded Bottom-Up, from the 
                depth cap of max_depth upwards, unless a 
@@ -404,7 +432,71 @@ class BaseKey(abc.ABC):
         yield self
 
 
-    def children(self):
+    
+
+
+    def search_for_text(
+        self,
+        strs: Collection[str], 
+        ) -> Iterator[SearchResult]:
+            vals = self.registry_values()
+                
+            display_name = vals.get('DisplayName',
+                                    next((val 
+                                          for val_name, val in vals.items()
+                                          if 'name' in val_name.lower()
+                                         ),
+                                         str(self)
+                                        )
+                                    )
+
+
+            if any(str_ in self.rel_key('\\')[2] 
+                   for str_ in strs
+                  ):
+                #    
+                yield self, display_name, '', '', vals
+            else:
+                for val_name, val in vals.items():
+                    if any(str_ in str(val) for str_ in strs):
+                        yield self, display_name, val_name, val, vals
+                        break
+
+    @staticmethod
+    def text_in_key_or_vals(
+        key,
+        strs: Collection[str],
+        ) -> bool:
+        return next(key.search_for_text(strs), None) is not None
+
+
+    def search_subkeys_for_text(
+        self,
+        strs: Collection[str],
+        search_children_of_keys_containing_text: bool = False 
+        ) -> Iterator[SearchResult]:
+
+        if search_children_of_keys_containing_text:
+            skip_children = None
+        else:
+            skip_children = functools.partial(self.text_in_key_or_vals, strs=strs)
+
+        for key in self.walk(skip_children = skip_children):
+            yield from key.search_for_text(strs)
+
+
+
+    def child_names(self) -> Iterator[str]:
+        with self.handle() as handle:
+            num_sub_keys, __, __ = winreg.QueryInfoKey(handle)
+            for i in range(num_sub_keys):
+                yield winreg.EnumKey(handle, i)
+
+
+    def children(
+        self,
+        child_class: Optional[Type[ReadableKey]] = None,
+        ):
         
         # Enumerate and store all the child strings at once, so we can 
         # access each one using its
@@ -413,20 +505,36 @@ class BaseKey(abc.ABC):
         # Otherwise we must use two different calls, 
         # i) winreg.EnumKey(key, 0) when iterating destructively and
         # ii) winreg.EnumKey(key, i) when iterating non-destructively.
+        child_names = list(self.child_names())
 
-        with self.handle() as handle:
-            num_sub_keys, __, __ = winreg.QueryInfoKey(handle)
-            child_names = [winreg.EnumKey(handle, i) for i in range(num_sub_keys)]
+        # Deletable Keys need to delete their children first
+        # but GlobalRoot's default children are RootKey instances,
+        # and RootKeys' default children are ReadableKeys (like their grandparents).
+        child_class = child_class or self.__child_class
 
         for child_name in child_names:
-            yield self.child_class(self.root, f'{self.rel_key}\\{child_name}')
+            yield child_class(self.root, f'{self.rel_key}\\{child_name}')
 
-        
+    def check_in_alterable_root(self) -> None:
+        for rel_key in self.__do_not_alter_subkeys_of.get(self.root, []):
+            if self.rel_key.lower().startswith(rel_key.lower()):
+                raise Exception(f'Cannot modify sub keys of: {self.root.value}')
+
+    def check_not_restricted(self) -> None:
+        if self.restricted():
+            raise Exception(f'Cannot delete restricted key: {self}')
+
+    def check_can_delete_subkeys_of_parents(self) -> None:
+        for rel_key in self.__do_not_delete_subkeys_of.get(self.root, []):
+            if self.rel_key.lower().startswith(rel_key.lower()):
+                raise Exception(f'Cannot delete sub keys of: {self.root.value}')
 
 
+# e.g.               key,         display_name, val_name, val, vals
+SearchResult = tuple[ReadableKey, str,          str,      Any, CaseInsensitiveDict]
 
-class Key(BaseKey):
 
+class ReadAndWritableKey(ReadableKey):
 
     def __init__(
         self,
@@ -434,58 +542,20 @@ class Key(BaseKey):
         rel_key: str,
         BackupMaker: Type[KeyBackupMaker] = CmdKeyBackupMaker,
         ):
-        if not rel_key:
-            raise Exception(f'Keys cannot be created for root keys. '
-                            f'Use RootKey instead.  Got: {rel_key=}'
-                           )
-        self._root = root
-        self._rel_key = rel_key
+
+        super().__init__(root, rel_key)
 
         # Doesn't need to be instantiated.
         self.BackupMaker = BackupMaker
-        self.child_class = self.__class__
 
 
 
-    @classmethod
-    def from_str(cls, key_str: str) -> Self:
-        prefix, __, rel_key = key_str.partition('\\')
-        root = Root.from_str(prefix)
-        return cls(root, rel_key)
 
 
     def make_tmp_backup(self) -> None:
         self.BackupMaker.tmp_backup_key(str(self))
 
-    def check_in_alterable_root(self) -> None:
-        if self.root in self.__do_not_alter_subkeys_of:
-            raise Exception(f'Cannot modify sub keys of: {self.root.value}')
-
-    def check_not_restricted(self) -> None:
-        if self.restricted():
-            raise Exception(f'Cannot delete restricted key: {self}')
-
-    def _delete(self, save_backup_first: bool = True) -> None:
-
-        self.check_in_alterable_root()
-
-        self.check_not_restricted()
-        
-        if self.root in self.__do_not_delete_subkeys_of:
-            raise Exception(f'Cannot delete sub keys of: {self.root.value}')
-
-        if self.contains_path_env_variable():
-            raise Exception(f'Cannot delete key whose value contains system path data: {self}')
-
-        if save_backup_first:
-            self.make_tmp_backup()
-
-        with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
-            winreg.DeleteKey(handle, '')
-
-    def delete(self) -> None:
-        self._delete(save_backup_first = True)
-
+            
     def consolidate_backups(self, dir_: Optional[pathlib.Path] = None) -> None:
         self.BackupMaker.consolidate_tmp_backups(dir_)
 
@@ -526,24 +596,51 @@ class Key(BaseKey):
         self._set_registry_value_data(name, data, type_, save_backup_first=True)
 
 
+class DeletableKey(ReadAndWritableKey):
 
-class RootKey(BaseKey):
+    def _delete(self, save_backup_first: bool = True) -> None:
 
-    child_class = Key
+        self.check_in_alterable_root()
 
-    def __init__(self, root: Root, rel_key: str = ''):
+        self.check_not_restricted()
+        
+        self.check_can_delete_subkeys_of_parents()
+
+        if self.contains_path_env_variable():
+            raise Exception(f'Cannot delete key whose value contains system path data: {self}')
+
+        if save_backup_first:
+            self.make_tmp_backup()
+
+        for key in self.walk():
+            key._delete(save_backup_first = not self.BackupMaker.backs_up_sub_keys_too)
+
+        with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
+            winreg.DeleteKey(handle, '')
+
+    def delete(self) -> None:
+        self._delete(save_backup_first = True)
+
+
+
+
+
+class RootKey(ReadableKey):
+
+
+    def __init__(self, root: Optional[Root], rel_key: str = ''):
 
         # Keep rel_key in __init__ args so that from_str still works as is.
         if rel_key:
             raise Exception(f'RootKeys cannot have a relative key. Got: {rel_key=}')
 
-        self._root = root
-        self._rel_key = ''
+        super().__init__(root=root, rel_key='')
+
+        self.__child_class = ReadableKey
 
 
-class GlobalRoot(BaseKey):
+class GlobalRoot(RootKey):
 
-    child_class = RootKey
 
     def __init__(self, root: Optional[Root] = None, rel_key: str = ''):
         
@@ -556,6 +653,7 @@ class GlobalRoot(BaseKey):
         self._root = None
         self._rel_key = ''
 
+        self.__child_class = RootKey
 
     @property
     def HKEY_Const(self) -> None:
@@ -571,11 +669,12 @@ class GlobalRoot(BaseKey):
     def registry_values(self):
         return CaseInsensitiveDict()
 
-    def children(self) -> Iterator[RootKey]:
+    def child_names(self) -> Iterator[str]:
         for root in Root:
-            yield RootKey(root)
+            yield root.name
 
-uninstallers_keys = [Key(root, rel_key) 
-                     for root, rel_keys in Key.__uninstallers.items()
+
+uninstallers_keys = [ReadableKey(root, rel_key) 
+                     for root, rel_keys in ReadableKey.__uninstallers.items()
                      for rel_key in rel_keys
                     ]
