@@ -7,9 +7,8 @@ from .registry import check_uninstallers, search_registry_keys, purge_registry_k
 def main(args = sys.argv[1:]) -> int:
 
     if not args:
-        print('Example usage, searching for ["Microsoft"]')
-        check_uninstallers(["Microsoft"])
-        return 0
+        print('Example usage: [python -m win_purge "Microsoft"]')
+        args = ["Microsoft"]
 
 
     # if '--purge-paths' in args:
@@ -17,6 +16,7 @@ def main(args = sys.argv[1:]) -> int:
     #     # purge_directories(args)
     # else:
     #     search_directories(args)
+
 
     if '--purge-registry' in args:
         args.remove('--purge-registry')

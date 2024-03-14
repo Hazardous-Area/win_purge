@@ -88,8 +88,8 @@ class CaseInsensitiveDict(dict):
 
 class KeyBackupMaker(abc.ABC):
     
-    @abc.abstractmethod
     @classmethod
+    @abc.abstractmethod
     def tmp_backup_key(cls, name: str):
         pass
     
@@ -203,7 +203,7 @@ class CmdKeyBackupMaker(KeyBackupMaker):
                     send2trash.send2trash(tmp_backup)
 
     
-    atexit.register(consolidate_tmp_backups, CmdKeyBackupMaker)
+atexit.register(CmdKeyBackupMaker.consolidate_tmp_backups)
 
 
 class NoRootError(Exception):
@@ -232,7 +232,7 @@ class ReadableKey:
         # Class specific overridable default class to assign to 
         # create children from, in self.children and self.walk
         # if None, uses self.__class__
-        self.__child_class = self.__class__
+        self._child_class = self.__class__
 
     @property
     def rel_key(self):
@@ -253,22 +253,22 @@ class ReadableKey:
     def from_key(cls, key: Self):
         return cls(key.root, key.rel_key)
 
-    __do_not_delete_subkeys_of = {
+    _do_not_delete_subkeys_of = {
         Root.HKCR: [''],
         }
 
-    __do_not_alter_subkeys_of = {
+    _do_not_alter_subkeys_of = {
         Root.HKCC: [''],
         }
 
-    __restricted = {
+    _restricted = {
         Root.HKLM : [r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
                     ],
         Root.HKCU : [r'Environment',
                     ],
         }
 
-    __uninstallers = {
+    uninstallers = {
         Root.HKLM : [r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
                     ],
         }
@@ -279,7 +279,16 @@ class ReadableKey:
         return self.root.name
 
     def __str__(self):
+        if self.root is None:
+            return '\\'
+        if not self.rel_key:
+            return self.root.name
         return f'{self.root_name}\\{self.rel_key}'
+
+    def __repr__(self):
+        if self.root is None:
+            return f'<{GlobalRoot.__name__}()>'
+        return f'<{self.__class__.__name__}(Root.{self.root.name}, {self.rel_key})>'
 
     def __hash__(self):
         # Instances for the same registry key will have the same hash,
@@ -289,7 +298,10 @@ class ReadableKey:
 
     @property
     def sub_key(self):
-        return '\\'.join([self.root.name, self.rel_key])
+        """ Includes the root prefix, e.g. HKLM, 
+            as that's what winreg expects. 
+        """
+        return str(self)
 
 
     @property
@@ -305,8 +317,9 @@ class ReadableKey:
         # __del__ is relied on to do this whenever the garbage
         # collector runs, which can be buggy in 
         # non-CPython implementations.
+
         return winreg.OpenKey(key = self.HKEY_Const,
-                              sub_key = self.sub_key,
+                              sub_key = self.rel_key,
                               reserved = 0,
                               access = access
                              )
@@ -320,7 +333,7 @@ class ReadableKey:
             return False
 
     def restricted(self):
-        for rel_key in self.__restricted.get(self.root, []):
+        for rel_key in self._restricted.get(self.root, []):
             if self.rel_key.lower().startswith(rel_key.lower()):
                 return True
         return False
@@ -413,24 +426,25 @@ class ReadableKey:
                predicate Callable skip_children is specified, (e.g. 
                if all sub keys will be deleted anyway) in which 
                case the nodes are returned Lowest-Up. """
-        if max_depth == 0:
+
+        if max_depth == 0 or (self.root and not self.exists()):
             return
 
         if skip_children is None or not skip_children(self):
-            with self.handle(access = access) as handle:
-                num_sub_keys, num_vals, last_updated = winreg.QueryInfoKey(handle)
 
-                for child in self.children():
+            for child in self.children():
 
 
-                    # Walking the entire Registry can yield wierd non-existent keys
-                    # that only their parents know about.
-                    if not child.exists():
-                        continue
+                # Walking the entire Registry can yield wierd non-existent keys
+                # that only their parents know about.
+                if not child.exists():
+                    continue
 
-                    yield from child.walk(access = access,
-                                          max_depth = None if max_depth is None else max_depth - 1
-                                          )
+
+
+                yield from child.walk(access = access,
+                                        max_depth = None if max_depth is None else max_depth - 1
+                                        )
             
         yield self
 
@@ -454,7 +468,7 @@ class ReadableKey:
                                     )
 
 
-            if any(str_ in self.rel_key('\\')[2] 
+            if any(str_ in self.rel_key 
                    for str_ in strs
                   ):
                 #    
@@ -476,7 +490,8 @@ class ReadableKey:
     def search_key_and_subkeys_for_text(
         self,
         strs: Collection[str],
-        search_children_of_keys_containing_text: bool = False 
+        search_children_of_keys_containing_text: bool = False,
+        max_depth: Optional[int] = 5,
         ) -> Iterator[SearchResult]:
 
         if search_children_of_keys_containing_text:
@@ -484,7 +499,7 @@ class ReadableKey:
         else:
             skip_children = functools.partial(self.text_in_key_or_vals, strs=strs)
 
-        for key in self.walk(skip_children = skip_children):
+        for key in self.walk(skip_children = skip_children, max_depth=max_depth):
             yield from key.search_for_text(strs)
 
 
@@ -513,13 +528,14 @@ class ReadableKey:
         # Deletable Keys need to delete their children first
         # but GlobalRoot's default children are RootKey instances,
         # and RootKeys' default children are ReadableKeys (like their grandparents).
-        child_class = child_class or self.__child_class
+        child_class = child_class or self._child_class
 
         for child_name in child_names:
-            yield child_class(self.root, f'{self.rel_key}\\{child_name}')
+            child_rel_key = f'{self.rel_key}\\{child_name}' if self.rel_key else child_name
+            yield child_class(self.root, child_rel_key)
 
     def check_in_alterable_root(self) -> None:
-        for rel_key in self.__do_not_alter_subkeys_of.get(self.root, []):
+        for rel_key in self._do_not_alter_subkeys_of.get(self.root, []):
             if self.rel_key.lower().startswith(rel_key.lower()):
                 raise Exception(f'Cannot modify sub keys of: {self.root.value}')
 
@@ -528,7 +544,7 @@ class ReadableKey:
             raise Exception(f'Cannot delete restricted key: {self}')
 
     def check_can_delete_subkeys_of_parents(self) -> None:
-        for rel_key in self.__do_not_delete_subkeys_of.get(self.root, []):
+        for rel_key in self._do_not_delete_subkeys_of.get(self.root, []):
             if self.rel_key.lower().startswith(rel_key.lower()):
                 raise Exception(f'Cannot delete sub keys of: {self.root.value}')
 
@@ -639,11 +655,10 @@ class RootKey(ReadableKey):
 
         super().__init__(root=root, rel_key='')
 
-        self.__child_class = ReadableKey
+        self._child_class = ReadableKey
 
 
 class GlobalRoot(RootKey):
-
 
     def __init__(self, root: Optional[Root] = None, rel_key: str = ''):
         
@@ -656,7 +671,8 @@ class GlobalRoot(RootKey):
         self._root = None
         self._rel_key = ''
 
-        self.__child_class = RootKey
+        self._child_class = RootKey
+
 
     @property
     def HKEY_Const(self) -> None:
@@ -672,12 +688,15 @@ class GlobalRoot(RootKey):
     def registry_values(self):
         return CaseInsensitiveDict()
 
-    def child_names(self) -> Iterator[str]:
+    def child_names(self):
         for root in Root:
             yield root.name
 
+    def children(self, child_class: Optional[Type[ReadableKey]] = None):
+        for root in Root:
+            yield RootKey(root)
 
 uninstallers_keys = [ReadableKey(root, rel_key) 
-                     for root, rel_keys in ReadableKey.__uninstallers.items()
+                     for root, rel_keys in ReadableKey.uninstallers.items()
                      for rel_key in rel_keys
                     ]

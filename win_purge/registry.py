@@ -1,4 +1,4 @@
-from typing import Iterator, Any, Collection
+from typing import Iterator, Any, Collection, Optional
 
 from . import reglib
 
@@ -49,72 +49,90 @@ def check_uninstallers(strs: Collection[str]):
 
 global_root = reglib.GlobalRoot()
 
-def get_path_keys_and_other_keys(strs: Collection[str]):
-    path_keys = []
-    other_keys = []
-    for result in global_root.search_key_and_subkeys_for_text(strs):
-        key, __, ___, ____, _____ = result
+def search_registry_for_text(strs: Collection[str], max_depth: Optional[int] = 5):
+    yield from global_root.search_key_and_subkeys_for_text(strs, max_depth=max_depth)
+
+
+
+
+def search_registry_keys(
+    args: Collection[str],
+    max_depth: Optional[int] = None,
+    ) -> None:
+
+
+
+    check_uninstallers(args)
+
+    print(f'Searching for Registry keys containing: {args}.\n'
+          f'Run with "--purge-registry" to delete the following registry keys: '
+         )
+    
+    for result in search_registry_for_text(args,  max_depth):
+        
+        key, __, __, __, __ = result
         if key.contains_path_env_variable():
-            path_keys.append(result)
+            _pprint_result(prefix='Match found in System Path registry key: ', result=result)
         else:
-            other_keys.append(result)
-
-    return path_keys, other_keys
-
-
-def search_registry_keys(args: Collection[str]) -> None:
-    print('Searching for matching Registry keys.  Run with "--purge-registry" to delete the following registry keys:')
-    
-    path_keys, other_keys = get_path_keys_and_other_keys(args)
-    
-    for result in path_keys:
-        _pprint_result(prefix='Match found in System Path registry key: ', result=result)
-
-    for result in other_keys:
-        _pprint_result(prefix='Matching registry key: ', result=result)
+            _pprint_result(prefix='Matching registry key: ', result=result)
 
 
 
 
-def _purge_registry_keys(args: Collection[str]) -> None:
+def _purge_registry_keys(
+    args: Collection[str],
+    max_depth: Optional[int] = None,
+    ) -> None:
     print('WARNING!! Deleting the following Registry keys: ')
 
 
-    path_keys, other_keys = get_path_keys_and_other_keys(args)
 
-    for result in path_keys:
+    for result in search_registry_for_text(args,  max_depth):
         key, __, __, __, vals = result
 
+        contains_path_env_variable = key.contains_path_env_variable()
 
-        for path_val_name in key.names_of_path_env_variables():
-            system_paths = set(vals[path_val_name].split(';'))
-            matching_paths = {
-                     path
-                     for path in system_paths
-                     if any(str_.lower() in path.lower() 
-                            for str_ in args
-                           )
-                    }
-            confirmation = input(f'Remove: {matching_paths} from registry key Path value? (y/n/quit)')
+
+        if contains_path_env_variable:
+
+            
+            _pprint_result(prefix='Match found in System Path registry key: ', result=result)
+
+            confirmation = ''
+
+            for path_val_name in key.names_of_path_env_variables():
+                
+                contains_path_env_variable = True
+
+                system_paths = set(vals[path_val_name].split(';'))
+                matching_paths = {
+                        path
+                        for path in system_paths
+                        if any(str_.lower() in path.lower() 
+                                for str_ in args
+                            )
+                        }
+                confirmation = input(f'Remove: {matching_paths} from registry key Path value? (y/n/quit)')
+
+                if confirmation.lower().startswith('q'):
+                    break
+
+                if confirmation.lower() == 'y':
+                    writeable_key = reglib.ReadAndWritableKey.from_key(key)
+                    writeable_key.set_registry_value_data(
+                        name = path_val_name,
+                        data = ';'.join(system_paths - matching_paths),
+                        type = 1,
+                        )
 
             if confirmation.lower().startswith('q'):
                 break
-
-            if confirmation.lower() == 'y':
-                writeable_key = reglib.ReadAndWritableKey.from_key(key)
-                writeable_key.set_registry_value_data(
-                    name = path_val_name,
-                    data = ';'.join(system_paths - matching_paths),
-                    type = 1,
-                    )
-
-
+            else:
+                continue
 
 
                 
 
-    for result in other_keys:
-                        #
 
         _pprint_result(prefix='Matching registry key: ', result=result)
 
