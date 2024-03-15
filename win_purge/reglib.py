@@ -254,6 +254,11 @@ class ReadableKey:
         return cls(key.root, key.rel_key)
 
     _do_not_delete_subkeys_of : dict[Root, list[str]] = {
+        Root.HKLM : [r'SOFTWARE\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
+                     r'SOFTWARE\Microsoft\Windows Search\Gather\Windows\SystemIndex\Sites\LocalHost\Paths',
+                     r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
+                     r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\Gather\Windows\SystemIndex\Sites\LocalHost\Paths',
+                    ]
         }
 
     _do_not_alter_subkeys_of = {
@@ -264,9 +269,11 @@ class ReadableKey:
         Root.HKLM : [r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
                     ],
         Root.HKCU : [r'Environment',
+                     r'Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache',
                     ],
         Root.HKCR : [r'Local Settings\Software\Microsoft\Windows\Shell\MuiCache',  #TODO: Treat like system path.
-                    ],
+                    ],  #TODO: Why is this deletable?  Because of whitespace in it?
+                    
         }
 
     uninstallers = {
@@ -594,22 +601,20 @@ class ReadAndWritableKey(ReadableKey):
 
         self.check_in_alterable_root()
 
-        self.check_not_restricted()
-
         if save_backup_first:
             self.make_tmp_backup()
 
         if type_ is None:
             type_ = 1
 
-        # with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
-        #     winreg.SetValueEx(
-        #         handle, #key = 
-        #         name, # value_name = name, 
-        #         0, # reserved = 0
-        #         type_, # type = type_
-        #         data, # value = data   
-        #         )
+        with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
+            winreg.SetValueEx(
+                handle, #key = 
+                name, # value_name = name, 
+                0, # reserved = 0
+                type_, # type = type_
+                data, # value = data   
+                )
 
     def set_registry_value_data(
         self,
@@ -640,8 +645,8 @@ class DeletableKey(ReadAndWritableKey):
         for key in self.children():
             key._delete(save_backup_first = not self.BackupMaker.backs_up_sub_keys_too)
 
-        # with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
-        #     winreg.DeleteKey(handle, '')
+        with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
+            winreg.DeleteKey(handle, '')
 
     def delete(self) -> None:
         self._delete(save_backup_first = True)

@@ -112,7 +112,7 @@ def _purge_registry_keys(
                                 for str_ in args
                             )
                         }
-                confirmation = input(f'Remove: {matching_paths} from registry key Path value? (y/n/quit)')
+                confirmation = input(f'Remove: {matching_paths} from registry key Path value? (y/n/quit) ')
 
                 if confirmation.lower().startswith('q'):
                     break
@@ -129,7 +129,6 @@ def _purge_registry_keys(
                 break
             else:
                 continue
-
 
                 
 
