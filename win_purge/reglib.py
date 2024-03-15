@@ -131,7 +131,7 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 
     @staticmethod
     def _backup_key(name_inc_root: str, path: pathlib.Path) -> None:
-        subprocess.run(f'reg export {name_inc_root} {path}')
+        subprocess.run(f'reg export "{name_inc_root}" "{path}"')
 
     backs_up_sub_keys_too = True
 

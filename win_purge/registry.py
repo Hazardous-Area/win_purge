@@ -68,13 +68,13 @@ def search_registry_keys(
           f'Run with "--purge-registry" to delete the following registry keys: '
          )
     
-    for result in search_registry_for_text(args,  max_depth):
+    for i, result in enumerate(search_registry_for_text(args,  max_depth)):
         
         key, __, __, __, __ = result
         if key.contains_path_env_variable():
-            _pprint_result(prefix='Match found in System Path registry key: ', result=result)
+            _pprint_result(prefix=f'{i}) Match found in System Path registry key: ', result=result)
         else:
-            _pprint_result(prefix='Matching registry key: ', result=result)
+            _pprint_result(prefix=f'{i}) Matching registry key: ', result=result)
 
 
 
@@ -87,7 +87,7 @@ def _purge_registry_keys(
 
 
 
-    for result in search_registry_for_text(args,  max_depth):
+    for i, result in enumerate(search_registry_for_text(args,  max_depth)):
         key, __, __, __, vals = result
 
         contains_path_env_variable = key.contains_path_env_variable()
@@ -96,7 +96,7 @@ def _purge_registry_keys(
         if contains_path_env_variable:
 
             
-            _pprint_result(prefix='Match found in System Path registry key: ', result=result)
+            _pprint_result(prefix=f'{i}) Match found in System Path registry key: ', result=result)
 
             confirmation = ''
 
@@ -134,7 +134,7 @@ def _purge_registry_keys(
                 
 
 
-        _pprint_result(prefix='Matching registry key: ', result=result)
+        _pprint_result(prefix=f'{i}) Matching registry key: ', result=result)
 
         key, __, __, __, __ = result
 
