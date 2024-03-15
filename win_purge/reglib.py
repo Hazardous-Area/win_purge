@@ -265,6 +265,8 @@ class ReadableKey:
                     ],
         Root.HKCU : [r'Environment',
                     ],
+        Root.HKCR : [r'Local Settings\Software\Microsoft\Windows\Shell\MuiCache',  #TODO: Treat like system path.
+                    ],
         }
 
     uninstallers = {
