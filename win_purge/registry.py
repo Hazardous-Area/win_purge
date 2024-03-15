@@ -122,7 +122,7 @@ def _purge_registry_keys(
                     writeable_key.set_registry_value_data(
                         name = path_val_name,
                         data = ';'.join(system_paths - matching_paths),
-                        type = 1,
+                        type_ = 1,
                         )
 
             if confirmation.lower().startswith('q'):

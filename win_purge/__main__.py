@@ -20,7 +20,7 @@ def main(args = sys.argv[1:]) -> int:
 
     if '--purge-registry' in args:
         args.remove('--purge-registry')
-        # purge_registry_keys(args)
+        purge_registry_keys(args)
     else:
         search_registry_keys(args)
 

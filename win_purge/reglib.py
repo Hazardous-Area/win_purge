@@ -186,19 +186,19 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 
             header_written = False
 
-            with backups_file.open('at') as f_w:
+            with backups_file.open('at', encoding='utf16') as f_w:
                 # Sort and Reverse for readability, so that parents appear before children.
                 # Order is most recent first (children backed up before parents), e.g.: 
                 # deleted_and_modified_keys_9.reg, ..., deleted_and_modified_keys_0.reg
                 for tmp_backup in reversed(sorted(tmp_backups)):
-                    with tmp_backup.open('rt') as f_r:
+                    with tmp_backup.open('rt', encoding='utf16') as f_r:
                         for line in f_r:
                             if line.startswith('Windows Registry Editor '):
                                 if header_written:
                                     continue
                                 else:
                                     header_written = True
-                            f_w.write(line)
+                            f_w.write(f'{line}\n')
 
                     send2trash.send2trash(tmp_backup)
 
@@ -253,8 +253,7 @@ class ReadableKey:
     def from_key(cls, key: Self):
         return cls(key.root, key.rel_key)
 
-    _do_not_delete_subkeys_of = {
-        Root.HKCR: [''],
+    _do_not_delete_subkeys_of : dict[Root, list[str]] = {
         }
 
     _do_not_alter_subkeys_of = {
@@ -272,6 +271,11 @@ class ReadableKey:
         Root.HKLM : [r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
                     ],
         }
+
+    for k, v in uninstallers.items():
+        if k not in _restricted:
+            _restricted[k] = []
+        _restricted[k].extend(v)
 
     @property
     def root_name(self):
@@ -334,7 +338,7 @@ class ReadableKey:
 
     def restricted(self):
         for rel_key in self._restricted.get(self.root, []):
-            if self.rel_key.lower().startswith(rel_key.lower()):
+            if self.rel_key.lower() == rel_key.lower():
                 return True
         return False
 
@@ -384,7 +388,7 @@ class ReadableKey:
 
         for name, candidate_path in self.registry_values().items():
 
-            if not isinstance(candidate_path, str):
+            if not isinstance(candidate_path, str) or not candidate_path:
                 continue
 
             # in %PATH% from cmd, the user path is appended to the windows 
@@ -596,14 +600,14 @@ class ReadAndWritableKey(ReadableKey):
         if type_ is None:
             type_ = 1
 
-        with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
-            winreg.SetValueEx(
-                handle, #key = 
-                name, # value_name = name, 
-                0, # reserved = 0
-                type_, # type = type_
-                data, # value = data   
-                )
+        # with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
+        #     winreg.SetValueEx(
+        #         handle, #key = 
+        #         name, # value_name = name, 
+        #         0, # reserved = 0
+        #         type_, # type = type_
+        #         data, # value = data   
+        #         )
 
     def set_registry_value_data(
         self,
@@ -631,11 +635,11 @@ class DeletableKey(ReadAndWritableKey):
         if save_backup_first:
             self.make_tmp_backup()
 
-        for key in self.walk():
+        for key in self.children():
             key._delete(save_backup_first = not self.BackupMaker.backs_up_sub_keys_too)
 
-        with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
-            winreg.DeleteKey(handle, '')
+        # with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
+        #     winreg.DeleteKey(handle, '')
 
     def delete(self) -> None:
         self._delete(save_backup_first = True)
