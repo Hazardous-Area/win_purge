@@ -30,7 +30,9 @@ def _matching_uninstallers(strs: Collection[str]) -> Iterator[reglib.SearchResul
                                     search_children_of_keys_containing_text = True,
                                     )
         
-   
+
+class MatchingUninstallersFound(Exception):
+    pass
 
 
 
@@ -44,7 +46,7 @@ def check_uninstallers(strs: Collection[str]):
 
 
     if found:
-        raise Exception('Matching uninstaller(s) found. Run these uninstallers first before purging. ')
+        raise MatchingUninstallersFound('Matching uninstaller(s) found. Run these uninstallers first before purging. ')
 
 
 global_root = reglib.GlobalRoot()
@@ -61,8 +63,14 @@ def search_registry_keys(
     ) -> None:
 
 
-
-    check_uninstallers(args)
+    try:
+        check_uninstallers(args)
+    except MatchingUninstallersFound as e:
+        print('\n################################################################################\n'
+              f'# {e.args[0]} #\n'
+              '################################################################################\n'
+        )
+        return None
 
     print(f'Searching for Registry keys containing: {args}.\n'
           f'Run with "--purge-registry" to delete the following registry keys: '
@@ -75,6 +83,8 @@ def search_registry_keys(
             _pprint_result(prefix=f'{i}) Match found in System Path registry key: ', result=result)
         else:
             _pprint_result(prefix=f'{i}) Matching registry key: ', result=result)
+
+    return None
 
 
 

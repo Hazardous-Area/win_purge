@@ -10,6 +10,8 @@ def main(args = sys.argv[1:]) -> int:
         print('Example usage: [python -m win_purge "Microsoft"]')
         args = ["Microsoft"]
 
+        return 0
+
 
     # if '--purge-paths' in args:
     #     args.remove('--purge-paths')
