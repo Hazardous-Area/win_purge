@@ -403,6 +403,10 @@ class ReadableKey:
             # in %PATH% from cmd, the user path is appended to the windows 
             # system path.  So we test for this by iterating from
             # start and end of %PATH%.  This won't find any paths in the middle.
+            #
+            # This uses zip, not itertools.zip_longest, so in one of these two
+            # options, the user's cwd should be ignored at the end of the iterable,
+            # as candidate_path is one shorter.
 
             for iterable in [zip(candidate_path.split(';'), PATH.split(';')),
                              zip(reversed(candidate_path.split(';')), reversed(PATH.split(';'))),
