@@ -70,10 +70,9 @@ def search_registry_keys(
                f'# {e.args[0]} #\n'
                 '################################################################################\n'
         )
-        return None
 
     print(f'Searching for Registry keys containing: {args}.\n'
-          f'Run with "--purge-registry" to delete the following registry keys: '
+          f'Rerun win_purge with "--purge-registry" to delete the following registry keys (confirmation for each required): '
          )
     
     for i, result in enumerate(search_registry_for_text(args,  max_depth)):
@@ -97,7 +96,7 @@ def _purge_registry_keys(
 
 
 
-    for i, result in enumerate(search_registry_for_text(args,  max_depth)):
+    for i, result in enumerate(search_registry_for_text(args,  max_depth, **kwargs)):
         key, __, __, __, vals = result
 
         contains_path_env_variable = key.contains_path_env_variable()
@@ -139,9 +138,6 @@ def _purge_registry_keys(
                 break
             else:
                 continue
-
-                
-
 
         _pprint_result(prefix=f'{i}) Matching registry key: ', result=result)
 

@@ -13,11 +13,14 @@ def main(args = sys.argv[1:]) -> int:
         return 0
 
 
-    # if '--purge-paths' in args:
-    #     args.remove('--purge-paths')
-    #     # purge_directories(args)
-    # else:
-    #     search_directories(args)
+    if '--purge-paths' in args:
+        args.remove('--purge-paths')
+        purge_directories(args)
+        return 0
+    elif '--search-paths' in args:
+        args.remove('--search-paths')
+        search_directories(args)
+        return 0
 
 
     if '--purge-registry' in args:

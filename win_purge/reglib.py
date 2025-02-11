@@ -88,13 +88,15 @@ class CaseInsensitiveDict(dict):
 
 class KeyBackupMaker(abc.ABC):
     
+    def __init__(self):
+        atexit.register(self.consolidate_tmp_backups)
+
     @classmethod
     @abc.abstractmethod
-    def tmp_backup_key(cls, name: str):
+    def make_tmp_backup_of_registry_key(cls, name: str):
         pass
     
-    @classmethod
-    def consolidate_tmp_backups(cls, dir_: Optional[pathlib.Path]) -> None:
+    def consolidate_tmp_backups(self, dir_: Optional[pathlib.Path]) -> None:
         pass
 
     backs_up_sub_keys_too = False
@@ -116,6 +118,15 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 
     backup_file_pattern = f'{prefix}%s{ext}'
 
+    backs_up_sub_keys_too = True
+
+    _shared_instance: Optional[Self] = None
+    @classmethod
+    def get_shared_instance(cls) -> Self:
+        cls._shared_instance = cls._shared_instance or cls()
+        return cls._shared_instance
+
+
     @classmethod
     def get_unused_path(cls, dir_: pathlib.Path) -> pathlib.Path:
 
@@ -130,13 +141,12 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 
 
     @staticmethod
-    def _backup_key(name_inc_root: str, path: pathlib.Path) -> None:
+    def _backup_registry_key(name_inc_root: str, path: pathlib.Path) -> None:
         subprocess.run(f'reg export "{name_inc_root}" "{path}"')
 
-    backs_up_sub_keys_too = True
 
     @classmethod
-    def tmp_backup_key(
+    def make_tmp_backup_of_registry_key(
         cls,
         name: str,
         dir_: Optional[pathlib.Path] = None,
@@ -150,31 +160,30 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 
         tmp_file = cls.get_unused_path(dir_)
 
-        cls._backup_key(name, tmp_file)
+        cls._backup_registry_key(name, tmp_file)
 
         cls.tmp_backups[dir_].add(tmp_file)
 
         return tmp_file
 
 
-    @classmethod
     def consolidate_tmp_backups(
-        cls,        
+        self,        
         dir_: Optional[pathlib.Path] = None,
         ) -> None:
 
         if dir_ is None:
-            if cls.backups_dir is None:
-                cls.backups_dir = APPDATA / cls.app_folder_name / 'registry_backups'
-                cls.backups_dir.mkdir(exist_ok = True, parents = True)
-            dir_ = cls.backups_dir
+            if self.backups_dir is None:
+                self.backups_dir = APPDATA / self.app_folder_name / 'registry_backups'
+                self.backups_dir.mkdir(exist_ok = True, parents = True)
+            dir_ = self.backups_dir
 
 
-        for tmp_backups_dir, tmp_backups in cls.tmp_backups.items():
+        for tmp_backups_dir, tmp_backups in self.tmp_backups.items():
 
             # Double check for anything else in the directory that 
             # matches our pattern, that failed to be consolidated before
-            tmp_dir_backups = set(tmp_backups_dir.glob(cls.backup_file_pattern % '*'))
+            tmp_dir_backups = set(tmp_backups_dir.glob(self.backup_file_pattern % '*'))
             previous_tmp_backups = tmp_dir_backups - tmp_backups
             if previous_tmp_backups:
                 warnings.warn(f'Also consolidating {previous_tmp_backups=}')
@@ -182,7 +191,7 @@ class CmdKeyBackupMaker(KeyBackupMaker):
 
 
             
-            backups_file = cls.get_unused_path(dir_)
+            backups_file = self.get_unused_path(dir_)
 
             header_written = False
 
@@ -203,7 +212,6 @@ class CmdKeyBackupMaker(KeyBackupMaker):
                     send2trash.send2trash(tmp_backup)
 
     
-atexit.register(CmdKeyBackupMaker.consolidate_tmp_backups)
 
 
 class NoRootError(Exception):
@@ -213,8 +221,24 @@ class NoRootError(Exception):
 class ReadableKey:
 
 
-    def __init__(self, root: Optional[Root], rel_key: str):
+    # Class specific overridable default class to assign to 
+    # create specific classed of children from (in 
+    # self.children and self.walk)
+    #
+    # if None, uses ReadableKey, to force mutable subclasses
+    # and DeletableKeys to be expicitly constructed, instead 
+    # of making all their children automatically mutable or 
+    # deletable too (principle of least privilege).
+    #
+    # Used to define the normal heirarchy:
+    # GlobalRoot -> RootKey -> ReadableKey -> ReadableKey -> ...
+    _child_class = ReadableKey
 
+    def __init__(
+        self,
+        root: Optional[Root],
+        rel_key: str,
+        ):
         
         if root is None:
             raise Exception(f'Key has no root.  '
@@ -226,10 +250,6 @@ class ReadableKey:
         self._root : Root | None = root
         self._rel_key = rel_key
 
-        # Class specific overridable default class to assign to 
-        # create children from, in self.children and self.walk
-        # if None, uses self.__class__
-        self._child_class = self.__class__
 
     @property
     def rel_key(self):
@@ -382,7 +402,7 @@ class ReadableKey:
             retval[name] = data
 
         if dupes:
-            raise Exception(f"Registry key: {self}'s value contain duplicated names ('keys'): {dupes}")
+            raise Exception(f"Registry key: {self}'s values contain duplicated names ('keys'): {dupes}")
 
         return retval
 
@@ -546,7 +566,10 @@ class ReadableKey:
 
         for child_name in child_names:
             child_rel_key = f'{self.rel_key}\\{child_name}' if self.rel_key else child_name
-            yield child_class(self.root, child_rel_key)
+            yield child_class(
+                    root = self.root,
+                    rel_key = child_rel_key,
+                    backup_maker = self.backup_maker)
 
     def check_in_alterable_root(self) -> None:
         for rel_key in self._do_not_alter_subkeys_of.get(self.root, []):
@@ -573,24 +596,22 @@ class ReadAndWritableKey(ReadableKey):
         self,
         root: Root, 
         rel_key: str,
-        BackupMaker: Type[KeyBackupMaker] = CmdKeyBackupMaker,
+        backup_maker: Optional[KeyBackupMaker],
         ):
 
         super().__init__(root, rel_key)
 
-        # Doesn't need to be instantiated.
-        self.BackupMaker = BackupMaker
-
+        self.backup_maker = backup_maker or CmdKeyBackupMaker.get_shared_instance()
 
 
 
 
     def make_tmp_backup(self) -> None:
-        self.BackupMaker.tmp_backup_key(str(self))
+        self.backup_maker.make_tmp_backup_of_registry_key(str(self))
 
             
     def consolidate_backups(self, dir_: Optional[pathlib.Path] = None) -> None:
-        self.BackupMaker.consolidate_tmp_backups(dir_)
+        self.backup_maker.consolidate_tmp_backups(dir_)
 
     def _set_registry_value_data(
         self,
@@ -627,6 +648,11 @@ class ReadAndWritableKey(ReadableKey):
         self._set_registry_value_data(name, data, type_, save_backup_first=True)
 
 
+class KeyWithDeletableValueNamesAndValues(ReadAndWritableKey):
+
+    def _delete_value_and_value_name(self):
+
+
 class DeletableKey(ReadAndWritableKey):
 
     def _delete(self, save_backup_first: bool = True) -> None:
@@ -644,7 +670,7 @@ class DeletableKey(ReadAndWritableKey):
             self.make_tmp_backup()
 
         for key in self.children():
-            key._delete(save_backup_first = not self.BackupMaker.backs_up_sub_keys_too)
+            key._delete(save_backup_first = not self.backup_maker.backs_up_sub_keys_too)
 
         with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
             winreg.DeleteKey(handle, '')
