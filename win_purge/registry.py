@@ -92,6 +92,14 @@ def _purge_registry_keys(
     args: Collection[str],
     max_depth: Optional[int] = None,
     ) -> None:
+
+    if "" in args:
+        raise ValueError(
+            'Deleting the entire Windows registry is not a supported feature. \n'
+            'Purging based on an empty string will purge all registry keys.
+        )
+
+
     print('WARNING!! Deleting the following Registry keys: ')
 
 
@@ -140,7 +148,7 @@ def _purge_registry_keys(
             key_with_deletable_values = reglib.KeyWithDeletableValueNamesAndValues.from_key(key)
             for val_name_i, val_i in key_with_deletable_values.vals_or_val_names_containing(args):
 
-                message = f'Remove value name/val: {val_name_i!r}/{val_i!r} from registry key: {key}? (y/n/quit/skip val names)'
+                message = f'Remove value name/val: {val_name_i!r}/{val_i!r} from registry key: {key}? (y/n/quit/skip val name)'
 
                 confirmation = input(message)
 
