@@ -249,6 +249,7 @@ class ReadableKey:
         # Tell Mypy self._root can be None in subclasses (i.e. GlobalRoot)
         self._root : Root | None = root
         self._rel_key = rel_key
+        self._registry_values: CaseInsensitiveDict[Hashable,Any] | None = None
 
 
     @property
@@ -285,10 +286,10 @@ class ReadableKey:
     _restricted = {
         Root.HKLM : [r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
                     ],
-        Root.HKCU : [r'Environment',
+        Root.HKCU : [#r'Environment',
                      r'Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache',
                     ],
-        Root.HKCR : [r'Local Settings\Software\Microsoft\Windows\Shell\MuiCache',  #TODO: Treat like system path.
+        Root.HKCR : [#r'Local Settings\Software\Microsoft\Windows\Shell\MuiCache',  #TODO: Treat like system path.
                     ],  #TODO: Why is this deletable?  Because of whitespace in it?
                     
         }
@@ -394,17 +395,18 @@ class ReadableKey:
 
 
     def registry_values(self) -> CaseInsensitiveDict:
-        retval =  CaseInsensitiveDict() 
-        dupes = []
-        for name, data, type_ in self.iter_names_data_and_types():
-            if name in retval:
-                dupes.append(dict(name = name, data = data, type = type_))
-            retval[name] = data
+        if self._registry_values is None:
+            self._registry_values =  CaseInsensitiveDict() 
+            dupes = []
+            for name, data, type_ in self.iter_names_data_and_types():
+                if name in self._registry_values:
+                    dupes.append(dict(name = name, data = data, type = type_))
+                self._registry_values[name] = data
 
-        if dupes:
-            raise Exception(f"Registry key: {self}'s values contain duplicated names ('keys'): {dupes}")
+            if dupes:
+                raise Exception(f"Registry key: {self}'s values contain duplicated names ('keys'): {dupes}")
 
-        return retval
+        return self._registry_values
 
 
 
@@ -412,36 +414,47 @@ class ReadableKey:
 
     def names_of_path_env_variables(self) -> Iterator[str]:
 
-        for name, candidate_path in self.registry_values().items():
+        # Speed up walking the registry, so we don't test every 
+        # str val/val_name pair on every key.
+        # Could also require self.rel_name.endswith("Environment")
+        if "path" not in self.registry_values():
+            return
 
-            if not isinstance(candidate_path, str) or not candidate_path:
-                continue
+        # for name, candidate_path in self.registry_values().items():
 
-            # in %PATH% from cmd, the user path is appended to the windows 
-            # system path.  So we test for this by iterating from
-            # start and end of %PATH%.  This won't find any paths in the middle.
-            #
-            # This uses zip, not itertools.zip_longest, so in one of these two
-            # options, the user's cwd should be ignored at the end of the iterable,
-            # as candidate_path is one shorter.
+        candidate_path = self.registry_values['path']
 
-            for iterable in [zip(candidate_path.split(';'), PATH.split(';')),
-                             zip(reversed(candidate_path.split(';')), reversed(PATH.split(';'))),
-                            ]:
+        if not isinstance(candidate_path, str) or not candidate_path:
+            continue
 
-                for reg_path, os_path in iterable:
-                    if reg_path != os_path:
-                        # Don't return False.  Test next iterable (reversed).
-                        break
-                    #
-                else:
-                    # for/ else - if loop did not hit the break statement, 
-                    # i.e. if all path entries equalled a corresponding one in
-                    # PATH, either from the start of the end.
-                    yield name
+        # in %PATH% from cmd, the user path is appended to the windows 
+        # system path.  So we test for this by iterating from
+        # start and end of %PATH%.  This won't find any paths in the middle.
+        #
+        # This uses zip, not itertools.zip_longest, so in one of these two
+        # options, the user's cwd should be ignored at the end of the iterable,
+        # as candidate_path is one shorter.
 
-                    # Don't yield again if the second iterable also tests positive
+        candidate_paths = candidate_path.split(';')
+        os_env_paths = PATH.split(';')
+
+        for iterable in [zip(candidate_paths, os_env_paths),
+                         zip(reversed(candidate_paths), reversed(os_env_paths)),
+                        ]:
+
+            for reg_path, os_env_path in iterable:
+                if reg_path != os_env_path:
+                    # Don't return False.  Test next iterable (same pair reversed).
                     break
+                #
+            else:
+                # for/ else - if loop did not hit the break statement, 
+                # i.e. if all path entries equalled a corresponding one in
+                # PATH, either from the start of the end.
+                yield "path"
+
+                # Don't yield again if the second iterable also tests positive
+                break
 
     
     def contains_path_env_variable(self) -> bool:
@@ -483,7 +496,17 @@ class ReadableKey:
         yield self
 
 
+    def strs_in_rel_key(strs: Collection[str]) -> bool:        
+        for str_ in strs:
+            if str_ in self.rel_key:
+                yield str_
+
     
+    def vals_or_val_names_containing(strs: Collection[str]) -> bool:
+        for val_name, val in self.registry_values().items():
+            for str_ in strs:
+                if str_ in val_name or str_ in str(val):
+                    yield val_name, val
 
 
     def search_for_text(
@@ -501,17 +524,13 @@ class ReadableKey:
                                         )
                                     )
 
+            for val_name, val in self.vals_or_val_names_containing(strs):
+                yield self, display_name, val_name, val, vals, ''
+                return
 
-            if any(str_ in self.rel_key 
-                   for str_ in strs
-                  ):
-                #    
-                yield self, display_name, '', '', vals
-            else:
-                for val_name, val in vals.items():
-                    if any(str_ in str(val) for str_ in strs):
-                        yield self, display_name, val_name, val, vals
-                        break
+            for str_ in self.strs_in_rel_key(strs)
+                yield self, display_name, '', '', vals, str_
+
 
     @staticmethod
     def text_in_key_or_vals(
@@ -586,8 +605,8 @@ class ReadableKey:
                 raise Exception(f'Cannot delete sub keys of: {self.root.value}')
 
 
-# e.g.               key,         display_name, val_name, val, vals
-SearchResult = tuple[ReadableKey, str,          str,      Any, CaseInsensitiveDict]
+# e.g.               key,         display_name, val_name, val, vals, str_in_rel_key
+SearchResult = tuple[ReadableKey, str,          str,      Any, CaseInsensitiveDict, str]
 
 
 class ReadAndWritableKey(ReadableKey):
@@ -650,7 +669,26 @@ class ReadAndWritableKey(ReadableKey):
 
 class KeyWithDeletableValueNamesAndValues(ReadAndWritableKey):
 
-    def _delete_value_and_value_name(self):
+    def _delete_value_and_value_name(
+        self,
+        value_name: str,
+        save_backup_first: bool = True,
+        ):
+
+        self.check_in_alterable_root()
+
+        self.check_not_restricted()
+        
+        self.check_can_delete_subkeys_of_parents()
+
+        if save_backup_first:
+            self.make_tmp_backup()
+
+        with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
+            handle.DeleteValue(value_name)
+
+    def delete_value_and_value_name(self, value_name: str):
+        self._delete_value_and_value_name(value_name, save_backup_first=True)
 
 
 class DeletableKey(ReadAndWritableKey):

@@ -36,7 +36,7 @@ class MatchingUninstallersFound(Exception):
 
 
 
-def check_uninstallers(strs: Collection[str]):
+def check_uninstallers(strs: Collection[str]) -> None:
     
     found = []
 
@@ -51,7 +51,7 @@ def check_uninstallers(strs: Collection[str]):
 
 global_root = reglib.GlobalRoot()
 
-def search_registry_for_text(strs: Collection[str], max_depth: Optional[int] = 5):
+def search_registry_for_text(strs: Collection[str], max_depth: Optional[int] = 5) -> Iterator[reglib.SearchResult]:
     yield from global_root.search_key_and_subkeys_for_text(strs, max_depth=max_depth)
 
 
@@ -77,7 +77,7 @@ def search_registry_keys(
     
     for i, result in enumerate(search_registry_for_text(args,  max_depth)):
         
-        key, __, __, __, __ = result
+        key, __, __, __, __, __ = result
         if key.contains_path_env_variable():
             _pprint_result(prefix=f'{i}) Match found in System Path registry key: ', result=result)
         else:
@@ -97,22 +97,21 @@ def _purge_registry_keys(
 
 
     for i, result in enumerate(search_registry_for_text(args,  max_depth, **kwargs)):
-        key, __, __, __, vals = result
-
-        contains_path_env_variable = key.contains_path_env_variable()
+        key, display_name, val_name, val, vals, search_str = result
 
 
-        if contains_path_env_variable:
+        names_of_path_env_variables = key.names_of_path_env_variables()
+
+
+        if names_of_path_env_variables:
 
             
             _pprint_result(prefix=f'{i}) Match found in System Path registry key: ', result=result)
 
             confirmation = ''
 
-            for path_val_name in key.names_of_path_env_variables():
+            for path_val_name in names_of_path_env_variables():
                 
-                contains_path_env_variable = True
-
                 system_paths = set(vals[path_val_name].split(';'))
                 matching_paths = {
                         path
@@ -124,7 +123,7 @@ def _purge_registry_keys(
                 confirmation = input(f'Remove: {matching_paths} from registry key Path value? (y/n/quit) ')
 
                 if confirmation.lower().startswith('q'):
-                    break
+                    return
 
                 if confirmation.lower() == 'y':
                     writeable_key = reglib.ReadAndWritableKey.from_key(key)
@@ -134,19 +133,39 @@ def _purge_registry_keys(
                         type_ = 1,
                         )
 
-            if confirmation.lower().startswith('q'):
-                break
+
+        if (val_name or val):
+            
+
+            key_with_deletable_values = reglib.KeyWithDeletableValueNamesAndValues.from_key(key)
+            for val_name_i, val_i in key_with_deletable_values.vals_or_val_names_containing(args):
+
+                message = f'Remove value name/val: {val_name_i!r}/{val_i!r} from registry key: {key}? (y/n/quit'
+                if list(key.str_in_rel_key(args)):
+                    message = f'{message}/delete whole key'
+                message = f'{message})'
+
+                confirmation = input(message)
+
+                if confirmation.lower().startswith('q'):
+                    return
+                elif confirmation.lower().startswith('d'):
+                    break
+                elif confirmation.lower().startswith('y'):
+                    key_with_deletable_values.delete_value_and_value_name(val_name_i)
+            
             else:
+                # If break (delete) did not occur in inner loop, skip 
+                # rest of outer loop (delete whole key section)
                 continue
 
-        _pprint_result(prefix=f'{i}) Matching registry key: ', result=result)
 
-        key, __, __, __, __ = result
+        _pprint_result(prefix=f'{i}) Matching registry key: ', result=result)
 
         confirmation = input(f'Delete registry key: {key}? (y/n/quit) ')
 
         if confirmation.lower().startswith('q'):
-            break
+            return
 
         if confirmation.lower() == 'y':
             deletable_key = reglib.DeletableKey.from_key(key)
