@@ -510,21 +510,33 @@ class ReadableKey:
                 if str_ in val_name or str_ in str(val):
                     yield val_name, val
 
+    def display_name(self) -> str:
+
+        vals = self.registry_values()
+
+        if 'DisplayName' in vals:
+            return vals['DisplayName']
+        
+        for val_name, val in vals.items():
+            if 'name' in val_name.lower() and isinstance(val, str):
+                return str
+
+        return ""
+
 
     def search_for_text(
         self,
         strs: Collection[str], 
         ) -> Iterator[SearchResult]:
+
             vals = self.registry_values()
                 
-            display_name = vals.get('DisplayName',
-                                    next((val 
-                                          for val_name, val in vals.items()
-                                          if 'name' in val_name.lower()
-                                         ),
-                                         str(self)
-                                        )
-                                    )
+            display_name = self.display_name()
+
+            for str_ in strs:
+                if str_ in display_name:
+                    yield self, display_name, '', '', vals, str_
+                    return 
 
             for val_name, val in self.vals_or_val_names_containing(strs):
                 yield self, display_name, val_name, val, vals, ''
@@ -532,6 +544,8 @@ class ReadableKey:
 
             for str_ in self.strs_in_rel_key(strs):
                 yield self, display_name, '', '', vals, str_
+            
+            return
 
 
     @staticmethod
