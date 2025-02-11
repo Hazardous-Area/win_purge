@@ -140,24 +140,17 @@ def _purge_registry_keys(
             key_with_deletable_values = reglib.KeyWithDeletableValueNamesAndValues.from_key(key)
             for val_name_i, val_i in key_with_deletable_values.vals_or_val_names_containing(args):
 
-                message = f'Remove value name/val: {val_name_i!r}/{val_i!r} from registry key: {key}? (y/n/quit'
-                if list(key.str_in_rel_key(args)):
-                    message = f'{message}/delete whole key'
-                message = f'{message})'
+                message = f'Remove value name/val: {val_name_i!r}/{val_i!r} from registry key: {key}? (y/n/quit/skip val names)'
 
                 confirmation = input(message)
 
                 if confirmation.lower().startswith('q'):
                     return
-                elif confirmation.lower().startswith('d'):
+                elif confirmation.lower().startswith('s'):
                     break
                 elif confirmation.lower().startswith('y'):
                     key_with_deletable_values.delete_value_and_value_name(val_name_i)
             
-            else:
-                # If break (delete) did not occur in inner loop, skip 
-                # rest of outer loop (delete whole key section)
-                continue
 
 
         _pprint_result(prefix=f'{i}) Matching registry key: ', result=result)
