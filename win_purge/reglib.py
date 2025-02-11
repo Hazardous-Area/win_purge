@@ -519,7 +519,7 @@ class ReadableKey:
         
         for val_name, val in vals.items():
             if 'name' in val_name.lower() and isinstance(val, str):
-                return str
+                return val
 
         return ""
 

@@ -7,7 +7,7 @@ from . import reglib
 
 def _pprint_result(result: reglib.SearchResult, prefix: str = ''):
 
-    key, display_name, val_name, val, vals, search_str_in_rel_key = result
+    key, display_name, val_name, val, vals, search_str = result
 
     print(f'{prefix}{display_name}', end='')
 
@@ -15,8 +15,10 @@ def _pprint_result(result: reglib.SearchResult, prefix: str = ''):
 
     if name_of_OS_path_data_entry_name is not None:
         print(f', includes {name_of_OS_path_data_entry_name}: {vals[name_of_OS_path_data_entry_name]}')
-    elif val_name:
+    elif val_name or val:
         print(f', for: {val_name=}, {val=}', end='')
+    elif display_name:
+        print(f', with: {vals=}')
 
     print(f' at: {key}')
 
