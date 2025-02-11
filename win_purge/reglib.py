@@ -676,7 +676,7 @@ class DeletableKey(ReadAndWritableKey):
             winreg.DeleteKey(handle, '')
 
     def delete(self) -> None:
-        self._delete(save_backup_first: bool = True)
+        self._delete(save_backup_first = True)
 
 
 
