@@ -105,11 +105,11 @@ def _purge_registry_keys(
 
 
 
-    for i, result in enumerate(search_registry_for_text(args,  max_depth, **kwargs)):
+    for i, result in enumerate(search_registry_for_text(args,  max_depth)):
         key, display_name, val_name, val, vals, search_str = result
 
 
-        names_of_path_env_variables = key.names_of_path_env_variables()
+        names_of_path_env_variables = list(key.names_of_path_env_variables())
 
 
         if names_of_path_env_variables:
@@ -119,7 +119,7 @@ def _purge_registry_keys(
 
             confirmation = ''
 
-            for path_val_name in names_of_path_env_variables():
+            for path_val_name in names_of_path_env_variables:
                 
                 system_paths = set(vals[path_val_name].split(';'))
                 matching_paths = {
