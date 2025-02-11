@@ -93,7 +93,6 @@ def _purge_registry_keys(
     max_depth: Optional[int] = None,
     ) -> None:
 
-    raise Exception("Why is this called?")
 
     if "" in args:
         raise ValueError(
