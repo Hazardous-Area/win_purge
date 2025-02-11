@@ -6,6 +6,7 @@ from .registry import check_uninstallers, search_registry_keys, purge_registry_k
 
 def main(args = sys.argv[1:]) -> int:
 
+
     if not args:
         print('Example usage: [python -m win_purge "Microsoft"]')
         args = ["Microsoft"]

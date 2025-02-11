@@ -221,18 +221,6 @@ class NoRootError(Exception):
 class ReadableKey:
 
 
-    # Class specific overridable default class to assign to 
-    # create specific classed of children from (in 
-    # self.children and self.walk)
-    #
-    # if None, uses ReadableKey, to force mutable subclasses
-    # and DeletableKeys to be expicitly constructed, instead 
-    # of making all their children automatically mutable or 
-    # deletable too (principle of least privilege).
-    #
-    # Used to define the normal heirarchy:
-    # GlobalRoot -> RootKey -> ReadableKey -> ReadableKey -> ...
-    _child_class = ReadableKey
 
     def __init__(
         self,
@@ -250,6 +238,20 @@ class ReadableKey:
         self._root : Root | None = root
         self._rel_key = rel_key
         self._registry_values: CaseInsensitiveDict[Hashable,Any] | None = None
+
+            
+        # Class specific overridable default class to assign to 
+        # create specific classed of children from (in 
+        # self.children and self.walk)
+        #
+        # if None, uses ReadableKey, to force mutable subclasses
+        # and DeletableKeys to be expicitly constructed, instead 
+        # of making all their children automatically mutable or 
+        # deletable too (principle of least privilege).
+        #
+        # Used to define the normal heirarchy:
+        # GlobalRoot -> RootKey -> ReadableKey -> ReadableKey -> ...
+        self._child_class = ReadableKey
 
 
     @property
@@ -422,10 +424,10 @@ class ReadableKey:
 
         # for name, candidate_path in self.registry_values().items():
 
-        candidate_path = self.registry_values['path']
+        candidate_path = self.registry_values()['path']
 
         if not isinstance(candidate_path, str) or not candidate_path:
-            continue
+            return
 
         # in %PATH% from cmd, the user path is appended to the windows 
         # system path.  So we test for this by iterating from
@@ -496,13 +498,13 @@ class ReadableKey:
         yield self
 
 
-    def strs_in_rel_key(strs: Collection[str]) -> bool:        
+    def strs_in_rel_key(self, strs: Collection[str]) -> bool:        
         for str_ in strs:
             if str_ in self.rel_key:
                 yield str_
 
     
-    def vals_or_val_names_containing(strs: Collection[str]) -> bool:
+    def vals_or_val_names_containing(self, strs: Collection[str]) -> bool:
         for val_name, val in self.registry_values().items():
             for str_ in strs:
                 if str_ in val_name or str_ in str(val):
@@ -528,7 +530,7 @@ class ReadableKey:
                 yield self, display_name, val_name, val, vals, ''
                 return
 
-            for str_ in self.strs_in_rel_key(strs)
+            for str_ in self.strs_in_rel_key(strs):
                 yield self, display_name, '', '', vals, str_
 
 
@@ -588,7 +590,7 @@ class ReadableKey:
             yield child_class(
                     root = self.root,
                     rel_key = child_rel_key,
-                    backup_maker = self.backup_maker)
+                    )
 
     def check_in_alterable_root(self) -> None:
         for rel_key in self._do_not_alter_subkeys_of.get(self.root, []):

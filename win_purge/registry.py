@@ -7,7 +7,7 @@ from . import reglib
 
 def _pprint_result(result: reglib.SearchResult, prefix: str = ''):
 
-    key, display_name, val_name, val, vals = result
+    key, display_name, val_name, val, vals, search_str_in_rel_key = result
 
     print(f'{prefix}{display_name}', end='')
 
@@ -93,10 +93,12 @@ def _purge_registry_keys(
     max_depth: Optional[int] = None,
     ) -> None:
 
+    raise Exception("Why is this called?")
+
     if "" in args:
         raise ValueError(
             'Deleting the entire Windows registry is not a supported feature. \n'
-            'Purging based on an empty string will purge all registry keys.
+            'Purging based on an empty string will purge all registry keys.'
         )
 
 
