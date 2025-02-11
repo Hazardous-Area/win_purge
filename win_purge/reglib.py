@@ -617,7 +617,7 @@ class ReadAndWritableKey(ReadableKey):
         self,
         root: Root, 
         rel_key: str,
-        backup_maker: Optional[KeyBackupMaker],
+        backup_maker: Optional[KeyBackupMaker] = None,
         ):
 
         super().__init__(root, rel_key)
