@@ -111,7 +111,7 @@ def _purge_registry_keys(
         key, display_name, val_name, val, vals, search_str = result
 
 
-        names_of_path_env_variables = list(key.names_of_path_env_variables())
+        names_of_path_env_variables = set(key.names_of_path_env_variables())
 
 
         if names_of_path_env_variables:
@@ -144,12 +144,13 @@ def _purge_registry_keys(
                         type_ = 1,
                         )
 
-
-        if (val_name or val):
+        elif (val_name or val):
             
 
             key_with_deletable_values = reglib.KeyWithDeletableValueNamesAndValues.from_key(key)
-            for val_name_i, val_i in key_with_deletable_values.vals_or_val_names_containing(args):
+            vals_and_names = set(key_with_deletable_values.vals_or_val_names_containing(args)) 
+            vals_and_names -= names_of_path_env_variables 
+            for val_name_i, val_i in vals_and_names:
 
                 message = f'Remove value name/val: {val_name_i!r}/{val_i!r} from registry key: {key}? (y/n/quit/skip val name)'
 
@@ -162,18 +163,18 @@ def _purge_registry_keys(
                 elif confirmation.lower().startswith('y'):
                     key_with_deletable_values.delete_value_and_value_name(val_name_i)
             
+        if search_str:
+            _pprint_result(prefix=f'{i}) Matching registry key: ', result=result)
 
+            confirmation = input(f'Delete registry key: {key}? (y/n/quit) ')
 
-        _pprint_result(prefix=f'{i}) Matching registry key: ', result=result)
+            if confirmation.lower().startswith('q'):
+                return
 
-        confirmation = input(f'Delete registry key: {key}? (y/n/quit) ')
+            if confirmation.lower() == 'y':
+                deletable_key = reglib.DeletableKey.from_key(key)
+                deletable_key.delete()
 
-        if confirmation.lower().startswith('q'):
-            return
-
-        if confirmation.lower() == 'y':
-            deletable_key = reglib.DeletableKey.from_key(key)
-            deletable_key.delete()
 
 
 def purge_registry_keys(args: Collection[str]) -> None:
