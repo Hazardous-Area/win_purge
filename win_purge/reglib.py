@@ -291,9 +291,8 @@ class ReadableKey:
         Root.HKCU : [#r'Environment',
                      r'Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache',
                     ],
-        Root.HKCR : [#r'Local Settings\Software\Microsoft\Windows\Shell\MuiCache',  #TODO: Treat like system path.
-                    ],  #TODO: Why is this deletable?  Because of whitespace in it?
-                    
+        Root.HKCR : [
+                    ],  
         }
 
     uninstallers = {
@@ -694,8 +693,6 @@ class KeyWithDeletableValueNamesAndValues(ReadAndWritableKey):
 
         self.check_not_restricted()
         
-        self.check_can_delete_subkeys_of_parents()
-
         if save_backup_first:
             self.make_tmp_backup()
 
