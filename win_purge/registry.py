@@ -179,7 +179,7 @@ def _purge_registry_keys(
             _pprint_result(prefix=f'{i}) Matching registry key: ', result=result)
 
             if not key.can_delete_subkeys_of_parents():
-                print('Cannot delete sub keys of parents')
+                print(f'{i} Cannot delete sub keys of some parent of: {key}')
                 continue
 
             confirmation = input(f'Delete registry key: {key}? (y/n/quit) ')

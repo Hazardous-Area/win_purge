@@ -370,7 +370,7 @@ class ReadableKey:
 
     def restricted(self) -> bool:
         for rel_key in self._restricted.get(self.root, []):
-            if rel_key.lower().startswith(self.rel_key.lower()):
+            if self.rel_key.lower().startswith(rel_key.lower()):
                 return True
         return False
 
