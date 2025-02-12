@@ -283,7 +283,7 @@ class ReadableKey:
 
     _do_not_alter_subkeys_of = {
         Root.HKLM : [r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
-                    ]
+                    ],
         Root.HKCC: [''],
         }
 
