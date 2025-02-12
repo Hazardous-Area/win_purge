@@ -111,7 +111,13 @@ def _purge_registry_keys(
         key, display_name, val_name, val, vals, search_str = result
 
 
-        if key.restricted() or key.
+        if key.restricted():
+            _pprint_result(prefix=f'{i}) Cannot delete match found in restricted key: ', result=result)
+            continue
+
+        if not key.in_alterable_root():
+            _pprint_result(prefix=f'{i}) Cannot delete match found in sub key of restricted root: ', result=result)
+            continue
 
 
         names_of_path_env_variables = set(key.names_of_path_env_variables())
@@ -167,9 +173,14 @@ def _purge_registry_keys(
                     key_with_deletable_values.delete_value_and_value_name(val_name_i)
             
         if search_str:
+
+            
+
             _pprint_result(prefix=f'{i}) Matching registry key: ', result=result)
 
-            if 
+            if not key.can_delete_subkeys_of_parents():
+                print('Cannot delete sub keys of parents')
+                continue
 
             confirmation = input(f'Delete registry key: {key}? (y/n/quit) ')
 
