@@ -701,7 +701,7 @@ class KeyWithDeletableValueNamesAndValues(ReadAndWritableKey):
             self.make_tmp_backup()
 
         with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
-            handle.DeleteValue(value_name)
+            winreg.DeleteValue(handle, value_name)
 
     def delete_value_and_value_name(self, value_name: str):
         self._delete_value_and_value_name(value_name, save_backup_first=True)

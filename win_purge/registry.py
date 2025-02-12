@@ -152,7 +152,7 @@ def _purge_registry_keys(
             vals_and_names -= names_of_path_env_variables 
             for val_name_i, val_i in vals_and_names:
 
-                message = f'Remove value name/val: {val_name_i!r}/{val_i!r} from registry key: {key}? (y/n/quit/skip val name)'
+                message = f'Remove value name/val: {val_name_i!r}/{val_i!r} from registry key: {key}? (y/n/quit/skip val name) '
 
                 confirmation = input(message)
 
