@@ -722,7 +722,7 @@ class DeletableKey(ReadAndWritableKey):
         if save_backup_first:
             self.make_tmp_backup()
 
-        for key in self.children():
+        for key in self.children(child_class = DeletableKey):
             key._delete(save_backup_first = not self.backup_maker.backs_up_sub_keys_too)
 
         with self.handle(access = winreg.KEY_ALL_ACCESS) as handle:
