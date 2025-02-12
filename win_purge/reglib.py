@@ -277,12 +277,13 @@ class ReadableKey:
         Root.HKLM : [r'SOFTWARE\Microsoft\Windows Search\Gather\Windows\SystemIndex\Sites\LocalHost\Paths',
                      r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
                      r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\Gather\Windows\SystemIndex\Sites\LocalHost\Paths',
-                    ]
+                    ],
         }
 
     _do_not_alter_subkeys_of = {
         Root.HKLM : [r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
                     ],
+
         Root.HKCC: [''],
         }
 
@@ -290,9 +291,10 @@ class ReadableKey:
         Root.HKLM : [r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
                      r'SOFTWARE\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
                     ],
-        Root.HKCU : [#r'Environment',
-                     r'Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache',
+
+        Root.HKCU : [r'Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache',
                     ],
+
         Root.HKCR : [
                     ],  
         }
