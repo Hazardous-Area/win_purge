@@ -273,6 +273,10 @@ class ReadableKey:
     def from_key(cls, key: Self):
         return cls(key.root, key.rel_key)
 
+
+    # I don't know any detailed reasons why these keys should be in 
+    # the following protected categories, except that errors occur
+    # otherwise, and even regedit refuses to modify some of them
     _do_not_delete_subkeys_of : dict[Root, list[str]] = {
         Root.HKLM : [r'SOFTWARE\Microsoft\Windows Search\Gather\Windows\SystemIndex\Sites\LocalHost\Paths',
                      r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
