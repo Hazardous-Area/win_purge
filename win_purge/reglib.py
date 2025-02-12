@@ -274,8 +274,7 @@ class ReadableKey:
         return cls(key.root, key.rel_key)
 
     _do_not_delete_subkeys_of : dict[Root, list[str]] = {
-        Root.HKLM : [r'SOFTWARE\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
-                     r'SOFTWARE\Microsoft\Windows Search\Gather\Windows\SystemIndex\Sites\LocalHost\Paths',
+        Root.HKLM : [r'SOFTWARE\Microsoft\Windows Search\Gather\Windows\SystemIndex\Sites\LocalHost\Paths',
                      r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
                      r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\Gather\Windows\SystemIndex\Sites\LocalHost\Paths',
                     ]
@@ -289,6 +288,7 @@ class ReadableKey:
 
     _restricted = {
         Root.HKLM : [r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
+                     r'SOFTWARE\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
                     ],
         Root.HKCU : [#r'Environment',
                      r'Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache',
