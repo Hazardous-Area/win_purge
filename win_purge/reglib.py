@@ -282,6 +282,8 @@ class ReadableKey:
         }
 
     _do_not_alter_subkeys_of = {
+        Root.HKLM : [r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
+                    ]
         Root.HKCC: [''],
         }
 
@@ -364,11 +366,36 @@ class ReadableKey:
         except (OSError, FileExistsError):
             return False
 
-    def restricted(self):
+    def restricted(self) -> bool:
         for rel_key in self._restricted.get(self.root, []):
-            if self.rel_key.lower() == rel_key.lower():
+            if rel_key.lower().startswith(self.rel_key.lower()):
                 return True
         return False
+
+    def in_alterable_root(self) -> bool:
+        for rel_key in self._do_not_alter_subkeys_of.get(self.root, []):
+            if self.rel_key.lower().startswith(rel_key.lower()):
+                return False
+        return True
+
+    def can_delete_subkeys_of_parents(self) -> bool:
+        for rel_key in self._do_not_delete_subkeys_of.get(self.root, []):
+            if self.rel_key.lower().startswith(rel_key.lower()):
+                return False
+        return True
+
+    def check_in_alterable_root(self) -> None:
+        if not self.in_alterable_root():
+            raise Exception(f'Cannot modify sub keys of: {self.root.value}')
+
+    def check_not_restricted(self) -> None:
+        if self.restricted():
+            raise Exception(f'Cannot delete restricted key: {self}')
+
+    def check_can_delete_subkeys_of_parents(self) -> None:
+        if not self.can_delete_subkeys_of_parents():
+            raise Exception(f'Cannot delete sub keys of: {self.root.value}')
+
 
     @contextlib.contextmanager
     def handle(self, access = winreg.KEY_READ):
@@ -603,20 +630,6 @@ class ReadableKey:
                     root = self.root,
                     rel_key = child_rel_key,
                     )
-
-    def check_in_alterable_root(self) -> None:
-        for rel_key in self._do_not_alter_subkeys_of.get(self.root, []):
-            if self.rel_key.lower().startswith(rel_key.lower()):
-                raise Exception(f'Cannot modify sub keys of: {self.root.value}')
-
-    def check_not_restricted(self) -> None:
-        if self.restricted():
-            raise Exception(f'Cannot delete restricted key: {self}')
-
-    def check_can_delete_subkeys_of_parents(self) -> None:
-        for rel_key in self._do_not_delete_subkeys_of.get(self.root, []):
-            if self.rel_key.lower().startswith(rel_key.lower()):
-                raise Exception(f'Cannot delete sub keys of: {self.root.value}')
 
 
 # e.g.               key,         display_name, val_name, val, vals, str_in_rel_key

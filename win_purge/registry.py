@@ -111,6 +111,9 @@ def _purge_registry_keys(
         key, display_name, val_name, val, vals, search_str = result
 
 
+        if key.restricted() or key.
+
+
         names_of_path_env_variables = set(key.names_of_path_env_variables())
 
 
@@ -165,6 +168,8 @@ def _purge_registry_keys(
             
         if search_str:
             _pprint_result(prefix=f'{i}) Matching registry key: ', result=result)
+
+            if 
 
             confirmation = input(f'Delete registry key: {key}? (y/n/quit) ')
 
