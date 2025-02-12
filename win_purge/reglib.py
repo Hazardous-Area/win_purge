@@ -544,8 +544,7 @@ class ReadableKey:
 
             for str_ in self.strs_in_rel_key(strs):
                 yield self, display_name, '', '', vals, str_
-            
-            return
+                return
 
 
     @staticmethod
