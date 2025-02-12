@@ -276,24 +276,26 @@ class ReadableKey:
 
     # I don't know any detailed reasons why these keys should be in 
     # the following protected categories, except that errors occur
-    # otherwise, and even regedit refuses to modify some of them
+    # otherwise, and even regedit refuses to modify some of them.
     _do_not_delete_subkeys_of : dict[Root, list[str]] = {
-        Root.HKLM : [r'SOFTWARE\Microsoft\Windows Search\Gather\Windows\SystemIndex\Sites\LocalHost\Paths',
-                     r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
-                     r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\Gather\Windows\SystemIndex\Sites\LocalHost\Paths',
-                    ],
         }
 
+    # This category is to forbid winreg.SetValue[Ex] as well as to forbid 
+    # deletions (of both value names/ values, and child keys)
     _do_not_alter_subkeys_of = {
         Root.HKLM : [r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
+                     r'SOFTWARE\WOW6432Node\Microsoft\Windows Search\Gather\Windows\SystemIndex\Sites\LocalHost\Paths',
+                     r'SOFTWARE\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
+                     r'SOFTWARE\Microsoft\Windows Search\Gather\Windows\SystemIndex\Sites\LocalHost\Paths',
                     ],
 
+        # Empty string Includes all on this root.
         Root.HKCC: [''],
         }
 
+    # Do not delete value names/ value pairs from, and do not delete
     _restricted = {
         Root.HKLM : [r'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
-                     r'SOFTWARE\Microsoft\Windows Search\CrawlScopeManager\Windows\SystemIndex\WorkingSetRules',
                     ],
 
         Root.HKCU : [r'Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache',
