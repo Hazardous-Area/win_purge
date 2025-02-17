@@ -1,21 +1,15 @@
 import sys
 import argparse
 
-from .directories import search_directories, purge_directories
+from .directories import search_directories, delete_directories
 from .registry import check_uninstallers, search_registry, delete_values_or_keys_from_registry
 
-# COMMANDS = {# Values must not be None
-#             '--purge-paths' : purge_directories,
-#             '--search-paths' : search_directories,
-#             '--purge-registry' : delete_values_or_keys_from_registry,
-#             '--search-registry' : search_registry,
-#             }
-COMMANDS = {# Values must not be None
-            'purge-paths' : search_directories,
-            'search-paths' : search_directories,
-            'purge-registry' : search_registry,
-            'search-registry' : search_registry,
+COMMANDS = {'--purge-paths' : delete_directories,
+            '--search-paths' : search_directories,
+            '--purge-registry' : delete_values_or_keys_from_registry,
+            '--search-registry' : search_registry,
             }
+
 DEFAULT_COMMAND = search_registry
 
 

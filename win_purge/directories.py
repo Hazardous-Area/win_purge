@@ -50,7 +50,7 @@ def search_directories(args: Iterable[str]) -> None:
         print(str(path))
 
 
-def _purge_directories(args: Iterable[str]) -> None:
+def _delete_directories(args: Iterable[str]) -> None:
     print('WARNING!! Moving the following directories to the Recycle Bin: \n')
     paths = existing_installation_directories(args)
     for path in paths:
@@ -62,6 +62,6 @@ def _purge_directories(args: Iterable[str]) -> None:
         if confirmation.lower() == 'y':
             send2trash.send2trash(path)
 
-def purge_directories(args: Collection[str]) -> None:
+def delete_directories(args: Collection[str]) -> None:
     check_uninstallers(args)
-    _purge_directories(args)
+    _delete_directories(args)
