@@ -75,7 +75,7 @@ def search_registry(
 
     print(
         f"Searching for Registry keys containing: {search_terms}.\n"
-        f'Rerun win_purge with "--purge-registry" to delete the following registry keys (confirmation for each required): '
+        f'Rerun win_purge with "purge-registry" to delete the following registry keys (confirmation for each required): '
     )
 
     for i, result in enumerate(search_registry_for_text(search_terms, max_depth)):
