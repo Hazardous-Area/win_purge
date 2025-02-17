@@ -13,7 +13,7 @@ def getenv(name: str) -> str:
 
 APPDATA = pathlib.Path(getenv('APPDATA'))
 
-def candidate_installion_directories(names: Iterable[str], publisher = '') -> Iterator[pathlib.Path]:
+def candidate_installation_directories(names: Iterable[str], publisher = '') -> Iterator[pathlib.Path]:
 
     if isinstance(names, str):
         names = [names]
@@ -24,6 +24,9 @@ def candidate_installion_directories(names: Iterable[str], publisher = '') -> It
         for path in getenv('PATH').split(';'):
             if name.lower() in path.lower() or publisher and publisher.lower() in path.lower():
                 yield pathlib.Path(path) 
+
+        
+        # An exact match with name is required in the remainder of cases.  
         yield pathlib.Path(SYSTEM_DRIVE) / publisher / name # r'C:\' + name
         # os.sep is needed.  getenv('SYSTEMDRIVE') returns c: on Windows.
         #                    assert pathlib.Path(('c:', 'foo') == 'c:foo'
@@ -36,7 +39,7 @@ def candidate_installion_directories(names: Iterable[str], publisher = '') -> It
 
 
 def existing_installation_directories(strs: Iterable[str]) -> Iterator[pathlib.Path]:
-    for path in candidate_installion_directories(strs):
+    for path in candidate_installation_directories(strs):
         if path.exists():
             yield path
 
@@ -49,7 +52,7 @@ def search_directories(args: Iterable[str]) -> None:
 
 def _purge_directories(args: Iterable[str]) -> None:
     print('WARNING!! Moving the following directories to the Recycle Bin: \n')
-    paths = list(existing_installation_directories(args))
+    paths = existing_installation_directories(args)
     for path in paths:
         confirmation = input(f'Delete: {str(path)}? (y/n/quit) ')
 
