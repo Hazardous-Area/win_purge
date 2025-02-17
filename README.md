@@ -20,9 +20,8 @@ That said, if you accept the risk, then win_purge has been designed to take the 
  - Requires a special force switch on the CLI to delete and modify keys.
  - Prompts for confirmation, skip or quit (y/n/quit respectively) before each change.
  - Tries to identify system path keys.  In recognised path keys, win_purge modifies the path name/data in the value instead (removing matching paths from the system wide path and from the user's path).  
- - Backs up each key before modification or deletion (with `reg export`[^0]), and consolidates the backups after each session.
+ - Backs up each key before modification or deletion (with `reg export`), and consolidates the backups after each session.
  - Uses send2trash to send the temporary key back up files to the Recycle Bin (does not permanently delete them).
 
  - Win_purge can also delete matching application files from common installation directories.
 
- <!-- - Tested? -->
