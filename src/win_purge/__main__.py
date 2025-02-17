@@ -6,10 +6,10 @@ from .directories import search_directories, delete_directories
 from .registry import search_registry, delete_values_or_keys_from_registry
 
 COMMANDS: dict[str, Callable[[Collection[str]], Any]] = {
-    "--purge-paths": delete_directories,
-    "--search-paths": search_directories,
-    "--purge-registry": delete_values_or_keys_from_registry,
-    "--search-registry": search_registry,
+    "purge-paths": delete_directories,
+    "search-paths": search_directories,
+    "purge-registry": delete_values_or_keys_from_registry,
+    "search-registry": search_registry,
 }
 
 DEFAULT_COMMAND = search_registry
