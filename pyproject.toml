@@ -1,6 +1,6 @@
 [project]
 name = "win-purge"
-version = "0.1.0"
+version = "0.0.0"
 license = {file = "LICENSE.md"}
 authors = [
   { name="James Parrott", email="james.parrott@proton.me" },
@@ -10,3 +10,16 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = ["send2trash",
                ]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: Microsoft :: Windows",
+    ]
+
+
+[project.scripts]
+win_purge = "win_purge.__main__:main" 
+
+[project.urls]   
+"Homepage" = "https://github.com/Hazardous-Area/win_purge"
+"Bug Tracker" = "https://github.com/Hazardous-Area/win_purge/issues"
