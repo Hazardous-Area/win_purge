@@ -1,0 +1,12 @@
+[project]
+name = "win-purge"
+version = "0.1.0"
+license = {file = "LICENSE.md"}
+authors = [
+  { name="James Parrott", email="james.parrott@proton.me" },
+]
+description = "Delete registry keys, registry value/ value_names, path entries, and often used installation directories based on a string search."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["send2trash",
+               ]
