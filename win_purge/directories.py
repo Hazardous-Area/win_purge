@@ -45,12 +45,12 @@ def existing_installation_directories(strs: Iterable[str]) -> Iterator[pathlib.P
 
 
 def search_directories(args: Iterable[str]) -> None:
-    print('Checking directories.  Run with "--purge-paths" to move the following paths to the Recycle Bin:')
+    print('Checking directories.  Run with "purge-paths" to move the following paths to the Recycle Bin:')
     for path in existing_installation_directories(args):
         print(str(path))
 
 
-def _purge_directories(args: Iterable[str]) -> None:
+def _delete_directories(args: Iterable[str]) -> None:
     print('WARNING!! Moving the following directories to the Recycle Bin: \n')
     paths = existing_installation_directories(args)
     for path in paths:
@@ -62,6 +62,6 @@ def _purge_directories(args: Iterable[str]) -> None:
         if confirmation.lower() == 'y':
             send2trash.send2trash(path)
 
-def purge_directories(args: Collection[str]) -> None:
+def delete_directories(args: Collection[str]) -> None:
     check_uninstallers(args)
-    _purge_directories(args)
+    _delete_directories(args)

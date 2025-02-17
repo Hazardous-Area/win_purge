@@ -25,10 +25,10 @@ def _pprint_result(result: reglib.SearchResult, prefix: str = ''):
 
 
 
-def _matching_uninstallers(strs: Collection[str]) -> Iterator[reglib.SearchResult]:
+def _matching_uninstallers(search_terms: Collection[str]) -> Iterator[reglib.SearchResult]:
     for uninstaller_key in reglib.uninstallers_keys:
         yield from uninstaller_key.search_key_and_subkeys_for_text(
-                                    strs,
+                                    search_terms,
                                     search_children_of_keys_containing_text = True,
                                     )
         
@@ -38,11 +38,11 @@ class MatchingUninstallersFound(Exception):
 
 
 
-def check_uninstallers(strs: Collection[str]) -> None:
+def check_uninstallers(search_terms: Collection[str]) -> None:
     
     found = []
 
-    for result in _matching_uninstallers(strs):
+    for result in _matching_uninstallers(search_terms):
         found.append(result)
         _pprint_result(prefix='Matching uninstaller: ', result=result)
 
@@ -53,31 +53,31 @@ def check_uninstallers(strs: Collection[str]) -> None:
 
 global_root = reglib.GlobalRoot()
 
-def search_registry_for_text(strs: Collection[str], max_depth: Optional[int] = 5) -> Iterator[reglib.SearchResult]:
-    yield from global_root.search_key_and_subkeys_for_text(strs, max_depth=max_depth)
+def search_registry_for_text(search_terms: Collection[str], max_depth: Optional[int] = 5) -> Iterator[reglib.SearchResult]:
+    yield from global_root.search_key_and_subkeys_for_text(search_terms, max_depth=max_depth)
 
 
 
 
-def search_registry_keys(
-    args: Collection[str],
+def search_registry(
+    search_terms: Collection[str],
     max_depth: Optional[int] = None,
     ) -> None:
 
 
     try:
-        check_uninstallers(args)
+        check_uninstallers(search_terms)
     except MatchingUninstallersFound as e:
         print('\n################################################################################\n'
                f'# {e.args[0]} #\n'
                 '################################################################################\n'
         )
 
-    print(f'Searching for Registry keys containing: {args}.\n'
+    print(f'Searching for Registry keys containing: {search_terms}.\n'
           f'Rerun win_purge with "--purge-registry" to delete the following registry keys (confirmation for each required): '
          )
     
-    for i, result in enumerate(search_registry_for_text(args,  max_depth)):
+    for i, result in enumerate(search_registry_for_text(search_terms,  max_depth)):
         
         key, __, __, __, __, __ = result
         if key.contains_path_env_variable():
@@ -90,13 +90,13 @@ def search_registry_keys(
 
 
 
-def _purge_registry_keys(
-    args: Collection[str],
+def _delete_values_or_keys_from_registry(
+    search_terms: Collection[str],
     max_depth: Optional[int] = None,
     ) -> None:
 
 
-    if "" in args:
+    if "" in search_terms:
         raise ValueError(
             'Deleting the entire Windows registry is not a supported feature. \n'
             'Purging based on an empty string will purge all registry keys.'
@@ -107,7 +107,7 @@ def _purge_registry_keys(
 
 
 
-    for i, result in enumerate(search_registry_for_text(args,  max_depth)):
+    for i, result in enumerate(search_registry_for_text(search_terms,  max_depth)):
         key, display_name, val_name, val, vals, search_str = result
 
 
@@ -137,7 +137,7 @@ def _purge_registry_keys(
                         path
                         for path in system_paths
                         if any(str_.lower() in path.lower() 
-                                for str_ in args
+                                for str_ in search_terms
                             )
                         }
                 confirmation = input(f'Remove: {matching_paths} from registry key Path value? (y/n/quit) ')
@@ -157,7 +157,7 @@ def _purge_registry_keys(
             
 
             key_with_deletable_values = reglib.KeyWithDeletableValueNamesAndValues.from_key(key)
-            vals_and_names = set(key_with_deletable_values.vals_or_val_names_containing(args)) 
+            vals_and_names = set(key_with_deletable_values.vals_or_val_names_containing(search_terms)) 
             vals_and_names -= names_of_path_env_variables 
             for val_name_i, val_i in vals_and_names:
 
@@ -193,6 +193,6 @@ def _purge_registry_keys(
 
 
 
-def purge_registry_keys(args: Collection[str]) -> None:
-    check_uninstallers(args)
-    _purge_registry_keys(args)
+def delete_values_or_keys_from_registry(search_terms: Collection[str]) -> None:
+    check_uninstallers(search_terms)
+    _delete_values_or_keys_from_registry(search_terms)

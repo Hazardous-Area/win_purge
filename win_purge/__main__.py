@@ -1,39 +1,37 @@
 import sys
+import argparse
 
-from .directories import search_directories, purge_directories
-from .registry import check_uninstallers, search_registry_keys, purge_registry_keys
+from .directories import search_directories, delete_directories
+from .registry import check_uninstallers, search_registry, delete_values_or_keys_from_registry
 
-COMMANDS = {# Values must not be None
-            '--purge-paths' : purge_directories,
+COMMANDS = {'--purge-paths' : delete_directories,
             '--search-paths' : search_directories,
-            '--purge-registry' : purge_registry_keys,
-            '--search-registry' : search_registry_keys,
+            '--purge-registry' : delete_values_or_keys_from_registry,
+            '--search-registry' : search_registry,
             }
-DEFAULT_COMMAND = search_registry_keys
+
+DEFAULT_COMMAND = search_registry
 
 
 def main(args = sys.argv[1:]) -> int:
 
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(required=True, dest='command')
 
-    #  TODO:  Redo using Argparse if simpler.
-    if not args:
-        print('Example usage: [python -m win_purge "Unwanted_application"]')
-        args = ["Unwanted_application"]
+    sub_parsers = {}
 
-        return 0
+    # create the parser for the "foo" command
+    for command_name in COMMANDS:
+        sub_parsers[command_name] = sub_parser = subparsers.add_parser(command_name)
 
-    args_without_opts = []
-    command = None
+    # Args common to all subparsers
+    parser.add_argument('search_terms',action='extend',nargs='+',type=str)
 
-    for arg in args:
-        if arg not in COMMANDS 
-            args_without_opts.append(arg)
-        elif command is None:
-            command = COMMANDS[arg]
-        
-    command = command or DEFAULT_COMMAND
-    
-    command(args_without_opts)
+    namespace = parser.parse_args(args)
+
+    command = COMMANDS.get(namespace.command, DEFAULT_COMMAND)
+
+    command(namespace.search_terms)
 
     return 0
 
